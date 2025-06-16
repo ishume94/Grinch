@@ -1,1 +1,2 @@
 Repository for OptCircuits. Test files are just examples. The colab notebook contains the initial implementation.
+The driver file contains the parameters for the training. Target states can be defined and maximum number of edges for each run. The code performs an optimization of weights after generating the final graph.

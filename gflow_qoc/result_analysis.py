@@ -38,6 +38,13 @@ def draw_labeled_multigraph(G, attr_name, ax=None):
         bbox={"alpha": 0},
         ax=ax,
     )
+def plot_graph(edge_vec):
+    G = nx.MultiGraph()
+    for (a, b), (c1, c2) in edge_vec:
+        G.add_edge(a, b, colors=(c1, c2))
+    fig, ax = plt.subplots(figsize=(10, 10))
+    draw_labeled_multigraph(G, 'colors', ax=ax) #Plots the colors
+    plt.savefig("graph.svg", format='svg', dpi=600)
 
 def histo_fidelity(target_state, ordered_states, num_colors):
     """
@@ -56,4 +63,4 @@ def histo_fidelity(target_state, ordered_states, num_colors):
     plt.title('Histogram of Reward Fidelities')
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.tight_layout()
-    plt.show()
+    plt.savefig("histogram.svg", format='svg', dpi=600)

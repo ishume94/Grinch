@@ -3,7 +3,7 @@ from .utils import *
 from tqdm import tqdm
 from torch.distributions.categorical import Categorical
 
-def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, model, n_episodes, learning_rate, decay_rate, seed, max_edges):
+def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, model, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges):
     set_seed(seed)
 
     # Instantiate model and optimizer
@@ -14,7 +14,6 @@ def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, mod
     # gradient step every `update_freq` episode (at the end of each trajectory).
     losses, sampled_states, logZs = [], [], []
     minibatch_loss = 0
-    update_freq = 50
 
     for episode in tqdm(range(n_episodes), ncols=40):
         state = []  # Each episode starts with an empty state.

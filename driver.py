@@ -17,7 +17,7 @@ FEATURE_KEYS = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in 
 
 # Fixed hyperparameters.
 n_hid_units = 512
-n_episodes = 200
+n_episodes = 200000
 learning_rate = 1e-2
 decay_rate = 1.00
 update_freq = 10 #Update every episode

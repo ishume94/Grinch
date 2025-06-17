@@ -55,7 +55,10 @@ print(f"Training time: {t1 - t0:.2f} seconds")
 
 t2 = time.time()
 ordered_states = sorted(sampled_states, key=lambda i: reward_fidelity(target_state,i, num_colors), reverse=True)
-print("Fidelity reward for best state:",reward_fidelity(target_state,ordered_states[0], num_colors))
+print("Fidelity reward for the best 20 states:")
+for state in enumerate(ordered_states[:20]):
+    print("Fidelity reward:", reward_fidelity(target_state, state, num_colors))
+
 t3 = time.time()
 print(f"Sorting time: {t3 - t2:.2f} seconds")
 

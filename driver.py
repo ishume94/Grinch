@@ -3,7 +3,7 @@ from gflow_qoc.gflow_utils import *
 from gflow_qoc.result_analysis import *
 from gflow_qoc.training import *
 import time
-
+import pickle
 import itertools
 from itertools import combinations
 
@@ -17,15 +17,16 @@ FEATURE_KEYS = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in 
 
 # Fixed hyperparameters.
 n_hid_units = 512
-n_episodes = 200000
-learning_rate = 1e-2
+n_episodes = 2000000
+learning_rate = 1e-4
 decay_rate = 1.00
 update_freq = 10 #Update every episode
 seed = 666
-max_edges = 9
+max_edges = 12
 #target_expr = "1|0000⟩ + 1|1111⟩" #4D-GHZ
 target_expr = "1|000000⟩ + 1|111111⟩+ 1|222222⟩" #6D-GHZ
 target_state = parse_dirac_expression(target_expr, num_nodes, num_colors)
+fig_name = "6D_GHZ"
 
 print("For all experiments, our hyperparameters will be:")
 print("    + n_hid_units={}".format(n_hid_units))
@@ -45,6 +46,10 @@ model = TBModel(n_hid_units, FEATURE_KEYS)
 sampled_states, losses, logZs = TB_train(num_colors, num_nodes, FEATURE_KEYS,
                                           target_expr, target_state, model, 
                                           n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges)
+#In case result analysis takes too long, we can save the graphs and the model.
+
+with open(fig_name + "_sampled_graphs.p", 'wb') as f:
+    pickle.dump(sampled_states, f, pickle.HIGHEST_PROTOCOL)
 
 ordered_states = sorted(sampled_states, key=lambda i: reward_fidelity(target_state,i, num_colors), reverse=True)
 print(reward_fidelity(target_state,ordered_states[0], num_colors))

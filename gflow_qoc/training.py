@@ -64,5 +64,11 @@ def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, mod
             opt.zero_grad()
             scheduler.step()
             minibatch_loss = 0
+            torch.save({
+            'epoch': episode,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': opt.state_dict(),
+            'loss': losses,
+            }, "TBmodel.pth")
     
     return sampled_states, losses, logZs

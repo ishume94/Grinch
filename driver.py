@@ -17,12 +17,12 @@ FEATURE_KEYS = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in 
 
 # Fixed hyperparameters.
 n_hid_units = 512
-n_episodes = 2000000
-learning_rate = 1e-4
-decay_rate = 1.00
-update_freq = 10 #Update every episode
+n_episodes = 200000
+learning_rate = 1e-5
+decay_rate = 1.001
+update_freq = 50 #Update every episode
 seed = 666
-max_edges = 12
+max_edges = 9
 #target_expr = "1|0000⟩ + 1|1111⟩" #4D-GHZ
 target_expr = "1|000000⟩ + 1|111111⟩+ 1|222222⟩" #6D-GHZ
 target_state = parse_dirac_expression(target_expr, num_nodes, num_colors)
@@ -50,12 +50,17 @@ sampled_states, losses, logZs = TB_train(num_colors, num_nodes, FEATURE_KEYS,
 
 with open(fig_name + "_sampled_graphs.p", 'wb') as f:
     pickle.dump(sampled_states, f, pickle.HIGHEST_PROTOCOL)
-
-ordered_states = sorted(sampled_states, key=lambda i: reward_fidelity(target_state,i, num_colors), reverse=True)
-print("Fidelity reward for best state:",reward_fidelity(target_state,ordered_states[0], num_colors))
-
 t1 = time.time()
 print(f"Training time: {t1 - t0:.2f} seconds")
 
+t2 = time.time()
+ordered_states = sorted(sampled_states, key=lambda i: reward_fidelity(target_state,i, num_colors), reverse=True)
+print("Fidelity reward for best state:",reward_fidelity(target_state,ordered_states[0], num_colors))
+t3 = time.time()
+print(f"Sorting time: {t3 - t2:.2f} seconds")
+
+t4 = time.time()
 plot_graph(ordered_states[0])
 histo_fidelity(target_state, ordered_states, num_colors)
+t5 = time.time()
+print(f"Plotting time: {t5 - t4:.2f} seconds")

@@ -14,8 +14,17 @@ def draw_labeled_multigraph(G, attr_name, ax=None):
     color_mapping = {0: 'blue', 1: 'red', 2: 'green', 3: 'yellow', 4: 'purple'}
     #Tried to plot each edge with 2 colors but could not do it. It is better to print the label.
     connectionstyle = [f"arc3,rad={r}" for r in it.accumulate([0.15] * 4)]
-
-    pos = nx.circular_layout(G)  # You can change the layout if needed
+    # ordered_nodes = sorted(G.nodes())
+    # pos = nx.circular_layout(G)  # You can change the layout if needed
+    # pos = {n: pos[n] for n in ordered_nodes}
+    # Define node layout manually (clockwise order)
+    ordered_nodes = sorted(G.nodes())  # You can customize this order
+    n = len(ordered_nodes)
+    angles = np.linspace(0, 2 * np.pi, n, endpoint=False)[::-1]  # Clockwise
+    pos = {
+        node: (np.cos(theta), np.sin(theta))
+        for node, theta in zip(ordered_nodes, angles)
+    }
     nx.draw_networkx_nodes(G, pos, ax=ax)
     nx.draw_networkx_labels(G, pos, font_size=12, ax=ax)
     nx.draw_networkx_edges(

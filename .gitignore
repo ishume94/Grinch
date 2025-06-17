@@ -1,3 +1,5 @@
 gflow_qoc/__pycache__/*
 *.svg
 *.log
+*.p
+*.pth

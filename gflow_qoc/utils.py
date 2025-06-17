@@ -31,7 +31,7 @@ def all_perfect_matchings(edge_list):
     return perfect_matchings
 
 def matching_to_state(matching, state, weights, num_nodes):
-    n_nodes = num_nodes#max(max(u, v) for ((u, v), _) in state) + 1
+    n_nodes = max(max(u, v) for ((u, v), _) in state) + 1
     #print(n_nodes)
     #print(state)
     #print(weights)
@@ -55,8 +55,8 @@ def matching_to_state(matching, state, weights, num_nodes):
 
     return weight_product, tuple(colors)
 
-def basis_index(color_tuple):
-    return int("".join(str(c) for c in color_tuple), 2)
+def basis_index(color_tuple, num_colors):
+    return int("".join(str(c) for c in color_tuple), num_colors)
 
 def build_normalized_state(state, weights, num_colors):
     matchings = all_perfect_matchings(state)
@@ -66,7 +66,7 @@ def build_normalized_state(state, weights, num_colors):
 
     for pm in matchings:
         amp, color_state = matching_to_state(pm, state, weights, n_nodes)
-        idx = basis_index(color_state)
+        idx = basis_index(color_state, num_colors)
         state_vector[idx] += amp
 
     # Normalize

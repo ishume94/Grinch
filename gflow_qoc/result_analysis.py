@@ -73,3 +73,9 @@ def histo_fidelity(target_state, ordered_states, num_colors):
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.tight_layout()
     plt.savefig("histogram.svg", format='svg', dpi=600)
+
+def plot_loss_curve(figure, losses_A, title=""):
+    filename = f"{figure}_loss.svg"
+    plt.figure(figsize=(10,5))
+    plt.plot(losses_A, color="black")
+    plt.savefig(filename, format='svg', dpi=600)

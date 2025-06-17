@@ -52,7 +52,7 @@ with open(fig_name + "_sampled_graphs.p", 'wb') as f:
     pickle.dump(sampled_states, f, pickle.HIGHEST_PROTOCOL)
 
 ordered_states = sorted(sampled_states, key=lambda i: reward_fidelity(target_state,i, num_colors), reverse=True)
-print(reward_fidelity(target_state,ordered_states[0], num_colors))
+print("Fidelity reward for best state:",reward_fidelity(target_state,ordered_states[0], num_colors))
 
 t1 = time.time()
 print(f"Training time: {t1 - t0:.2f} seconds")

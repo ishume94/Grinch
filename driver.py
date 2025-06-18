@@ -17,9 +17,9 @@ FEATURE_KEYS = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in 
 
 # Fixed hyperparameters.
 n_hid_units = 512
-n_episodes = 200000
-learning_rate = 1e-5
-decay_rate = 1.001
+n_episodes = 20000
+learning_rate = 1e-2
+decay_rate = 1.00
 update_freq = 50 #Update every episode
 seed = 666
 max_edges = 9
@@ -50,14 +50,16 @@ sampled_states, losses, logZs = TB_train(num_colors, num_nodes, FEATURE_KEYS,
 
 with open(fig_name + "_sampled_graphs.p", 'wb') as f:
     pickle.dump(sampled_states, f, pickle.HIGHEST_PROTOCOL)
+
 t1 = time.time()
 print(f"Training time: {t1 - t0:.2f} seconds")
 
 t2 = time.time()
 ordered_states = sorted(sampled_states, key=lambda i: reward_fidelity(target_state,i, num_colors), reverse=True)
+print("Fidelity reward for the best state:", reward_fidelity(target_state, ordered_states[0], num_colors))
 print("Fidelity reward for the best 20 states:")
-for state in enumerate(ordered_states[:20]):
-    print("Fidelity reward:", reward_fidelity(target_state, state, num_colors))
+for i in range(min(20, len(ordered_states))):
+    print("Fidelity reward:", reward_fidelity(target_state, ordered_states[i], num_colors))
 
 t3 = time.time()
 print(f"Sorting time: {t3 - t2:.2f} seconds")

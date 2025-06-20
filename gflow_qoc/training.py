@@ -22,9 +22,9 @@ def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, mod
 
         for t in range(max_edges):  # All trajectories are length 2 (not including s0).
             mask = calculate_forward_mask_from_state(state,target_expr, FEATURE_KEYS)#calculate_forward_mask_from_state(state)
-            P_F_s = torch.where(mask, P_F_s, -100)  # Removes invalid forward actions.
+            P_F_s = torch.where(mask, P_F_s, -1000)  # Removes invalid forward actions.
             # Here P_F is logits, so we use Categorical to compute a softmax.
-            #P_F_s = torch.where(torch.isnan(P_F_s), torch.full_like(P_F_s, -100), P_F_s)
+            P_F_s = torch.where(torch.isnan(P_F_s), torch.full_like(P_F_s, -100), P_F_s)
             categorical = Categorical(logits=P_F_s)
             action = categorical.sample()
             new_state = state + [FEATURE_KEYS[action]] # "Go" to next state.
@@ -38,8 +38,8 @@ def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, mod
             P_F_s, P_B_s = model(state_to_tensor(new_state,FEATURE_KEYS), FEATURE_KEYS)
             #print(new_state)
             mask = calculate_backward_mask_from_state(new_state, FEATURE_KEYS)
-            P_B_s = torch.where(mask, P_B_s, -100)  # Removes invalid backward actions.
-            #P_B_s = torch.where(torch.isnan(P_B_s), torch.full_like(P_B_s, -100), P_B_s)
+            P_B_s = torch.where(mask, P_B_s, -1000)  # Removes invalid backward actions.
+            P_B_s = torch.where(torch.isnan(P_B_s), torch.full_like(P_B_s, -100), P_B_s)
             total_log_P_B += Categorical(logits=P_B_s).log_prob(action)
 
             state = new_state  # Continue iterating.

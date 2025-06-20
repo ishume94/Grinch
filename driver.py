@@ -14,15 +14,15 @@ print(f"Number of optical paths: {num_nodes}, Number of modes: {num_colors}")
 node_pairs = list(itertools.combinations(range(num_nodes), 2))
 color_pairs = list(itertools.product(range(num_colors), repeat=2))
 FEATURE_KEYS = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in color_pairs]
-
+print("Size of feature keys = {}".format(len(FEATURE_KEYS)))
 # Fixed hyperparameters.
-n_hid_units = 512
-n_episodes = 20000
-learning_rate = 1e-2
-decay_rate = 1.00
-update_freq = 50 #Update every episode
-seed = 666
-max_edges = 9
+n_hid_units = 256
+n_episodes = 200000
+learning_rate = 1e-5
+decay_rate = 1.001
+update_freq = 10 #Update every episode
+seed = 69
+max_edges = 9 #4 for 4D_GHZ and 9 for 6D_GHZ
 #target_expr = "1|0000⟩ + 1|1111⟩" #4D-GHZ
 target_expr = "1|000000⟩ + 1|111111⟩+ 1|222222⟩" #6D-GHZ
 target_state = parse_dirac_expression(target_expr, num_nodes, num_colors)

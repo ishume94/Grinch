@@ -16,10 +16,10 @@ color_pairs = list(itertools.product(range(num_colors), repeat=2))
 FEATURE_KEYS = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in color_pairs]
 print("Size of feature keys = {}".format(len(FEATURE_KEYS)))
 # Fixed hyperparameters.
-n_hid_units = 256
-n_episodes = 20000
-learning_rate = 1e-4
-decay_rate = 1.00
+n_hid_units = 512
+n_episodes = 200000
+learning_rate = 1e-3
+decay_rate = 0.99
 update_freq = 100 #Update every episode
 seed = 666
 max_edges = 12 #4 for 4D_GHZ and 9 for 6D_GHZ

@@ -16,13 +16,14 @@ color_pairs = list(itertools.product(range(num_colors), repeat=2))
 FEATURE_KEYS = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in color_pairs]
 print("Size of feature keys = {}".format(len(FEATURE_KEYS)))
 # Fixed hyperparameters.
-n_hid_units = 512
-n_episodes = 200000
+n_hid_units = 8 #512 for MLP, 8 for GIN
+n_emb = 2 #Embedding dimension for GIN
+n_episodes = 20000
 learning_rate = 1e-3
-decay_rate = 0.99
-update_freq = 100 #Update every episode
+decay_rate = 1.00
+update_freq = 10 #Update every episode
 seed = 666
-max_edges = 12 #4 for 4D_GHZ and 9 for 6D_GHZ
+max_edges = 10 #4 for 4D_GHZ and 9 for 6D_GHZ
 #target_expr = "1|0000⟩ + 1|1111⟩" #4D-GHZ
 target_expr = "1|000000⟩ + 1|111111⟩+ 1|222222⟩" #6D-GHZ
 target_state = parse_dirac_expression(target_expr, num_nodes, num_colors)
@@ -30,6 +31,7 @@ fig_name = "6D_GHZ"
 
 print("For all experiments, our hyperparameters will be:")
 print("    + n_hid_units={}".format(n_hid_units))
+print("    + n_emb={}".format(n_emb))
 print("    + n_episodes={}".format(n_episodes))
 print("    + learning_rate={}".format(learning_rate))
 print("    + decay_rate={}".format(decay_rate))
@@ -40,13 +42,16 @@ print("    + max_edges={}".format(max_edges))
 print("    + Target state:", state_vector_to_dirac_notation(target_state, num_nodes, num_colors))
 t0 = time.time()
 
-model = TBModel(n_hid_units, FEATURE_KEYS)
+#model = TBModel(n_hid_units, FEATURE_KEYS)
 #model = embTBModel(n_hid_units, FEATURE_KEYS)
 
-sampled_states, losses, logZs = TB_train(num_colors, num_nodes, FEATURE_KEYS,
-                                          target_expr, target_state, model, 
-                                          n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges)
-#In case result analysis takes too long, we can save the graphs and the model.
+# sampled_states, losses, logZs = TB_train(num_colors, num_nodes, FEATURE_KEYS,
+#                                           target_expr, target_state, model, 
+#                                           n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges)
+
+sampled_states, losses, logZs = GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units,n_emb)
+
+
 
 with open(fig_name + "_sampled_graphs.p", 'wb') as f:
     pickle.dump(sampled_states, f, pickle.HIGHEST_PROTOCOL)

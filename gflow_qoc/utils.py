@@ -3,6 +3,8 @@ import numpy as np
 import re
 from sympy import sympify, sqrt
 from itertools import combinations
+from torch_geometric.data import Data
+import torch
 
 def all_perfect_matchings(edge_list):
     # Get total number of unique nodes (ignoring color)
@@ -121,7 +123,7 @@ def reward_fidelity(target_state, state, num_colors):
     if opt_fidelity < 0:
         return 0#opt_fidelity
     else:
-        return np.exp(opt_fidelity/2)#**2
+        return np.exp(opt_fidelity)#**2
     #return opt_fidelity
 
 def parse_dirac_expression(expr, num_nodes, num_colors ):
@@ -158,3 +160,31 @@ def parse_dirac_expression(expr, num_nodes, num_colors ):
     if norm == 0:
         raise ValueError("Zero-norm state.")
     return vec / norm
+
+
+def state_to_data(state, num_nodes, num_colors):
+    """
+    Convert the current state (e.g., a set of selected FEATURE_KEYS) into a PyG Data object.
+    `state` is assumed to be a set of FEATURE_KEYS currently active (edges with color pairs).
+    """
+    node_features = torch.eye(num_nodes)  # one-hot for node IDs, or use learned embeddings
+
+    # Extract edges and their color pairs
+    edge_list = []
+    edge_features = []
+    for ((u, v), (c1, c2)) in state:
+        edge_list.append([u, v])
+        edge_list.append([v, u])  # Undirected
+        edge_features.append([c1, c2])
+        edge_features.append([c2, c1])  # Make edge_attr symmetric if needed
+
+    if len(edge_list) == 0:
+        edge_index = torch.empty((2, 0), dtype=torch.long)
+        edge_attr = torch.zeros((0, 2), dtype=torch.float)
+    else:
+        edge_index = torch.tensor(edge_list, dtype=torch.long).T  # shape [2, num_edges]
+        edge_attr = torch.tensor(edge_features, dtype=torch.float)
+    # print("Edge index shape:", edge_index.shape)
+    # print("Edge attr shape:", edge_attr.shape)
+
+    return Data(x=node_features, edge_index=edge_index, edge_attr=edge_attr)

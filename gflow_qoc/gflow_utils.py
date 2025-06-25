@@ -2,6 +2,9 @@ import numpy as np
 import torch
 import re
 from sympy import sympify
+from torch_geometric.nn import GINConv, GINEConv
+from torch_geometric.nn import global_mean_pool, global_add_pool
+from torch_geometric.data import Data
 from .utils import *
 import random
 import torch.nn as nn
@@ -61,6 +64,108 @@ class embTBModel(nn.Module):
     P_B = logits[..., len(FEATURE_KEYS):]
 
     return P_F, P_B
+  
+class GINEncoder(nn.Module):
+    def __init__(self, in_channels, hidden_dim, num_layers=3):
+        super().__init__()
+        self.convs = nn.ModuleList()
+        for _ in range(num_layers):
+            mlp = nn.Sequential(
+                nn.Linear(in_channels if _ == 0 else hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim),
+            )
+            self.convs.append(GINConv(mlp))
+
+    def forward(self, x, edge_index):
+        for conv in self.convs:
+            x = conv(x, edge_index)
+        return x
+
+class GIN_TBModel(nn.Module):
+    def __init__(self, node_feat_dim, hidden_dim, FEATURE_KEYS):
+        super().__init__()
+        self.encoder = GINEncoder(node_feat_dim, hidden_dim)
+        self.pool = global_add_pool  # or global_mean_pool
+        self.decoder = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 2 * len(FEATURE_KEYS)),  # P_F and P_B
+        )
+        self.logZ = nn.Parameter(torch.ones(1))
+        self.FEATURE_KEYS = FEATURE_KEYS
+
+    def forward(self, data):  # `data` is a torch_geometric.data.Data object
+        x, edge_index, batch = data.x, data.edge_index, data.batch
+        node_emb = self.encoder(x, edge_index)
+        graph_emb = self.pool(node_emb, batch)
+        logits = self.decoder(graph_emb)
+        P_F = logits[..., :len(self.FEATURE_KEYS)]
+        P_B = logits[..., len(self.FEATURE_KEYS):]
+        return P_F, P_B
+
+
+# class GINEEncoder(nn.Module):
+#     def __init__(self, node_feat_dim, edge_feat_dim, hidden_dim, num_layers=3):
+#         super().__init__()
+#         self.convs = nn.ModuleList()
+#         for _ in range(num_layers):
+#             nn_mlp = nn.Sequential(
+#                 nn.Linear(node_feat_dim if _== 0 else hidden_dim, hidden_dim),
+#                 nn.ReLU(),
+#                 nn.Linear(hidden_dim, hidden_dim)
+#             )
+#             self.convs.append(GINEConv(nn_mlp, edge_dim=edge_feat_dim))
+
+#     def forward(self, x, edge_index, edge_attr):
+#         for conv in self.convs:
+#             x = conv(x, edge_index, edge_attr)
+#         return x
+class GINEEncoder(nn.Module):
+    def __init__(self, node_feat_dim, edge_feat_dim, hidden_dim, num_layers=3):
+        super().__init__()
+        self.convs = nn.ModuleList()
+        for _ in range(num_layers):
+            nn_edge = nn.Sequential(
+                nn.Linear(edge_feat_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim)
+            )
+            conv = GINEConv(nn=nn_edge, edge_dim=edge_feat_dim)
+            self.convs.append(conv)
+        self.final = nn.Linear(hidden_dim, hidden_dim)
+    def forward(self, x, edge_index, edge_attr):
+        if edge_index.size(1) == 0:
+            # No edges: return zero embeddings
+            batch_size = x.size(0)
+            h = torch.zeros((batch_size, self.final.in_features), dtype=x.dtype, device=x.device)
+        else:
+            for conv in self.convs:
+                x = conv(x, edge_index, edge_attr)
+            h = x
+        return self.final(h)
+        
+class GINE_TBModel(nn.Module):
+    def __init__(self, node_feat_dim, edge_feat_dim, hidden_dim, FEATURE_KEYS):
+        super().__init__()
+        self.encoder = GINEEncoder(node_feat_dim, edge_feat_dim, hidden_dim)
+        self.pool = global_add_pool
+        self.decoder = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 2 * len(FEATURE_KEYS))  # Forward and Backward
+        )
+        self.logZ = nn.Parameter(torch.ones(1))
+        self.FEATURE_KEYS = FEATURE_KEYS
+
+    def forward(self, data):
+        x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
+        node_emb = self.encoder(x, edge_index, edge_attr)
+        graph_emb = self.pool(node_emb, batch)
+        logits = self.decoder(graph_emb)
+        P_F = logits[..., :len(self.FEATURE_KEYS)]
+        P_B = logits[..., len(self.FEATURE_KEYS):]
+        return P_F, P_B
 
 def trajectory_balance_loss(logZ, log_P_F, log_P_B, reward):
     """Trajectory balance objective converted into mean squared error loss."""

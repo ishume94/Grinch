@@ -123,7 +123,7 @@ def reward_fidelity(target_state, state, num_colors):
     if opt_fidelity < 0:
         return 0#opt_fidelity
     else:
-        return np.exp(opt_fidelity)#**2
+        return np.exp(opt_fidelity/2)#**2
     #return opt_fidelity
 
 def parse_dirac_expression(expr, num_nodes, num_colors ):

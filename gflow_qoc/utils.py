@@ -120,10 +120,10 @@ def reward_fidelity(target_state, state, num_colors):
     opt_weights = result.x
     opt_fidelity = -result.fun
 
-    if opt_fidelity < 0:
+    if opt_fidelity < 0.0:
         return 0#opt_fidelity
     else:
-        return np.exp(opt_fidelity/2)#**2
+        return opt_fidelity**2#np.exp(opt_fidelity/2)#**2
     #return opt_fidelity
 
 def parse_dirac_expression(expr, num_nodes, num_colors ):

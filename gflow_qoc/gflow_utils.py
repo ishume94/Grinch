@@ -36,9 +36,9 @@ class TBModel(nn.Module):
     return P_F, P_B
 
 class embTBModel(nn.Module):
-  def __init__(self, num_hid, FEATURE_KEYS):
+  def __init__(self, num_hid, FEATURE_KEYS, n_emb):
     super().__init__()
-    num_emb_dim = 64  # Dimension of the embedding layer.
+    num_emb_dim = n_emb  # Dimension of the embedding layer.
     layer_1d = num_hid
     layer_2d = num_hid 
     layer_3d = num_hid

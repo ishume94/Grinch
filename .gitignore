@@ -4,3 +4,4 @@ gflow_qoc/__pycache__/*
 *.p
 *.pth
 *.egg-info
+Result*/*/*

@@ -86,7 +86,7 @@ class GIN_TBModel(nn.Module):
     def __init__(self, node_feat_dim, hidden_dim, FEATURE_KEYS):
         super().__init__()
         self.encoder = GINEncoder(node_feat_dim, hidden_dim)
-        self.pool = global_add_pool  # or global_mean_pool
+        self.pool = global_add_pool  
         self.decoder = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
@@ -100,8 +100,8 @@ class GIN_TBModel(nn.Module):
         node_emb = self.encoder(x, edge_index)
         graph_emb = self.pool(node_emb, batch)
         logits = self.decoder(graph_emb)
-        P_F = logits[..., :len(self.FEATURE_KEYS)]
-        P_B = logits[..., len(self.FEATURE_KEYS):]
+        P_F = logits[..., :len(self.FEATURE_KEYS)] #Forward policy logits
+        P_B = logits[..., len(self.FEATURE_KEYS):] #Backward polilcy logits
         return P_F, P_B
 
 

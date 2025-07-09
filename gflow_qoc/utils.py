@@ -174,9 +174,9 @@ def state_to_data(state, num_nodes, num_colors):
     edge_features = []
     for ((u, v), (c1, c2)) in state:
         edge_list.append([u, v])
-        edge_list.append([v, u])  # Undirected
+        #edge_list.append([v, u])  # Undirected
         edge_features.append([c1, c2])
-        edge_features.append([c2, c1])  # Make edge_attr symmetric if needed
+        #edge_features.append([c2, c1])  # Make edge_attr symmetric if needed
 
     if len(edge_list) == 0:
         edge_index = torch.empty((2, 0), dtype=torch.long)

@@ -105,7 +105,7 @@ class GIN_TBModel(nn.Module):
         return P_F, P_B
 
 class GINEEncoder(nn.Module):
-    def __init__(self, node_feat_dim, edge_feat_dim, hidden_dim, num_layers=4):
+    def __init__(self, node_feat_dim, edge_feat_dim, hidden_dim, num_layers=3):
         super().__init__()
         self.node_encoder = nn.Linear(node_feat_dim, hidden_dim)  
         self.edge_encoders = nn.ModuleList()

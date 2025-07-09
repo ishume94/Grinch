@@ -104,46 +104,38 @@ class GIN_TBModel(nn.Module):
         P_B = logits[..., len(self.FEATURE_KEYS):] #Backward polilcy logits
         return P_F, P_B
 
-
-# class GINEEncoder(nn.Module):
-#     def __init__(self, node_feat_dim, edge_feat_dim, hidden_dim, num_layers=3):
-#         super().__init__()
-#         self.convs = nn.ModuleList()
-#         for _ in range(num_layers):
-#             nn_mlp = nn.Sequential(
-#                 nn.Linear(node_feat_dim if _== 0 else hidden_dim, hidden_dim),
-#                 nn.ReLU(),
-#                 nn.Linear(hidden_dim, hidden_dim)
-#             )
-#             self.convs.append(GINEConv(nn_mlp, edge_dim=edge_feat_dim))
-
-#     def forward(self, x, edge_index, edge_attr):
-#         for conv in self.convs:
-#             x = conv(x, edge_index, edge_attr)
-#         return x
 class GINEEncoder(nn.Module):
-    def __init__(self, node_feat_dim, edge_feat_dim, hidden_dim, num_layers=3):
+    def __init__(self, node_feat_dim, edge_feat_dim, hidden_dim, num_layers=4):
         super().__init__()
+        self.node_encoder = nn.Linear(node_feat_dim, hidden_dim)  
+        self.edge_encoders = nn.ModuleList()
         self.convs = nn.ModuleList()
         for _ in range(num_layers):
-            nn_edge = nn.Sequential(
+            edge_encoder = nn.Sequential(
                 nn.Linear(edge_feat_dim, hidden_dim),
                 nn.ReLU(),
                 nn.Linear(hidden_dim, hidden_dim)
             )
-            conv = GINEConv(nn=nn_edge, edge_dim=edge_feat_dim)
-            self.convs.append(conv)
+            self.edge_encoders.append(edge_encoder)
+
+            conv_nn = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim)
+            )
+            self.convs.append(GINEConv(nn=conv_nn, edge_dim=hidden_dim))
+
         self.final = nn.Linear(hidden_dim, hidden_dim)
+
     def forward(self, x, edge_index, edge_attr):
-        if edge_index.size(1) == 0:
-            # No edges: return zero embeddings
-            batch_size = x.size(0)
-            h = torch.zeros((batch_size, self.final.in_features), dtype=x.dtype, device=x.device)
-        else:
-            for conv in self.convs:
-                x = conv(x, edge_index, edge_attr)
-            h = x
-        return self.final(h)
+        # if edge_index.size(1) == 0:
+        #     return torch.zeros((x.size(0), self.final.in_features), dtype=x.dtype, device=x.device)
+        # else:
+        x = self.node_encoder(x)  # project to hidden_dim
+        for conv, edge_encoder in zip(self.convs, self.edge_encoders):
+            edge_attr_transformed = edge_encoder(edge_attr)
+            x = conv(x, edge_index, edge_attr_transformed)
+        return self.final(x)
         
 class GINE_TBModel(nn.Module):
     def __init__(self, node_feat_dim, edge_feat_dim, hidden_dim, FEATURE_KEYS):
@@ -165,7 +157,7 @@ class GINE_TBModel(nn.Module):
         logits = self.decoder(graph_emb)
         P_F = logits[..., :len(self.FEATURE_KEYS)]
         P_B = logits[..., len(self.FEATURE_KEYS):]
-        return P_F, P_B
+        return P_F.squeeze(), P_B.squeeze()
 
 def trajectory_balance_loss(logZ, log_P_F, log_P_B, reward):
     """Trajectory balance objective converted into mean squared error loss."""

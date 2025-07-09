@@ -17,7 +17,7 @@ FEATURE_KEYS = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in 
 print("Size of feature keys = {}".format(len(FEATURE_KEYS)))
 # Fixed hyperparameters.
 n_hid_units = 8 #512 for MLP, 8 for GIN
-n_emb = 2 #Embedding dimension for GIN
+edge_feat_dim = 2 #Dimension of edge features, 2 for pair of colors
 n_episodes = 20000
 learning_rate = 1e-3
 decay_rate = 1.00
@@ -31,25 +31,24 @@ fig_name = "6D_GHZ"
 
 print("For all experiments, our hyperparameters will be:")
 print("    + n_hid_units={}".format(n_hid_units))
-print("    + n_emb={}".format(n_emb))
 print("    + n_episodes={}".format(n_episodes))
 print("    + learning_rate={}".format(learning_rate))
 print("    + decay_rate={}".format(decay_rate))
 print("    + update_freq={}".format(update_freq))
 print("    + seed={}".format(seed))
 print("    + max_edges={}".format(max_edges))
-#print("    + target state={}".format(target_state))
 print("    + Target state:", state_vector_to_dirac_notation(target_state, num_nodes, num_colors))
 t0 = time.time()
 
+#For TBModel, uncomment the following lines: It requires the model beforehand!!!
 #model = TBModel(n_hid_units, FEATURE_KEYS)
 #model = embTBModel(n_hid_units, FEATURE_KEYS)
-
 # sampled_states, losses, logZs = TB_train(num_colors, num_nodes, FEATURE_KEYS,
 #                                           target_expr, target_state, model, 
 #                                           n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges)
 
-sampled_states, losses, logZs = GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units,n_emb)
+sampled_states, losses, logZs = GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units)
+sampled_states, losses, logZs = GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, edge_feat_dim)
 
 
 

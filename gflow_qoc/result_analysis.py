@@ -79,3 +79,21 @@ def plot_loss_curve(figure, losses_A, title=""):
     plt.figure(figsize=(10,5))
     plt.plot(losses_A, color="black")
     plt.savefig(filename, format='svg', dpi=600)
+
+def plot_rewards(rewards):
+
+    # Best-so-far (cumulative max)
+    best = []
+    cur = None
+    for r in rewards:
+        cur = r if cur is None or r > cur else cur
+        best.append(cur)
+
+    x = list(range(1, len(rewards) + 1))
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(x, best, linewidth=1.5)
+    plt.xlabel("Iteration")
+    plt.ylabel("Best reward")
+    plt.savefig("rewards_progress.svg", format="svg", dpi=600, bbox_inches="tight")
+

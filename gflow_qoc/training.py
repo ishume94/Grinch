@@ -83,7 +83,7 @@ def GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state,
 
     # To not complicate the code, I'll just accumulate losses here and take a
     # gradient step every `update_freq` episode (at the end of each trajectory).
-    losses, sampled_states, logZs = [], [], []
+    losses, sampled_states, logZs, rewards = [], [], [], []
     minibatch_loss = 0
 
     for episode in tqdm(range(n_episodes), ncols=40):
@@ -129,6 +129,8 @@ def GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state,
         # We're done with the episode, add the face to the list, and if we are at an
         # update episode, take a gradient step.
         sampled_states.append(state)
+        rewards.append(reward)
+
         if episode % update_freq == 0:
             losses.append(minibatch_loss.item())
             logZs.append(model.logZ.item())
@@ -144,7 +146,7 @@ def GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state,
             'loss': losses,
             }, "GINTBmodel.pth")
     
-    return sampled_states, losses, logZs
+    return sampled_states, losses, logZs, rewards
 
 def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, edge_feat_dim):
     set_seed(seed)
@@ -156,7 +158,7 @@ def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state
 
     # To not complicate the code, I'll just accumulate losses here and take a
     # gradient step every `update_freq` episode (at the end of each trajectory).
-    losses, sampled_states, logZs = [], [], []
+    losses, sampled_states, logZs, rewards = [], [], [], []
     minibatch_loss = 0
 
     for episode in tqdm(range(n_episodes), ncols=40):
@@ -202,6 +204,7 @@ def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state
         # We're done with the episode, add the face to the list, and if we are at an
         # update episode, take a gradient step.
         sampled_states.append(state)
+        rewards.append(reward)
         if episode % update_freq == 0:
             losses.append(minibatch_loss.item())
             logZs.append(model.logZ.item())
@@ -216,5 +219,5 @@ def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state
             'optimizer_state_dict': opt.state_dict(),
             'loss': losses,
             }, "GINETBmodel.pth")
-    
-    return sampled_states, losses, logZs
+
+    return sampled_states, losses, logZs, rewards

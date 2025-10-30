@@ -47,13 +47,16 @@ t0 = time.time()
 #                                           target_expr, target_state, model, 
 #                                           n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges)
 
-sampled_states, losses, logZs = GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units)
-sampled_states, losses, logZs = GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, edge_feat_dim)
+sampled_states, losses, logZs, rewards = GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units)
+sampled_states, losses, logZs, rewards = GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, edge_feat_dim)
 
 
 
 with open(fig_name + "_sampled_graphs.p", 'wb') as f:
     pickle.dump(sampled_states, f, pickle.HIGHEST_PROTOCOL)
+
+with open(fig_name + "_rewards.p", 'wb') as f:
+    pickle.dump(rewards, f, pickle.HIGHEST_PROTOCOL)
 
 t1 = time.time()
 print(f"Training time: {t1 - t0:.2f} seconds")

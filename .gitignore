@@ -1,7 +1,8 @@
 gflow_qoc/__pycache__/*
 *.svg
+*.png
 *.log
 *.p
 *.pth
 *.egg-info
-Result*/*/*
+Results

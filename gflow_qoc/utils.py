@@ -113,7 +113,7 @@ def reward_fidelity(target_state, state, num_colors):
         init_weights,
         args=(state, target_state, num_colors),
         method='L-BFGS-B',
-        bounds=[(0, 1)] * len(state),
+        bounds=[(-1, 1)] * len(state),
         options={'disp': True}
     )
     # Optimized weights

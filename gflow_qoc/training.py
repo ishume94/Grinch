@@ -221,3 +221,206 @@ def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state
             }, "GINETBmodel.pth")
 
     return sampled_states, losses, logZs, rewards
+
+def GAT_TB_train(
+    num_colors,
+    num_nodes,
+    FEATURE_KEYS,
+    target_expr,
+    target_state,
+    n_episodes,
+    learning_rate,
+    decay_rate,
+    seed,
+    update_freq,
+    max_edges,
+    n_hid_units,
+    edge_feat_dim,
+    gat_heads: int = 4,
+    gat_layers: int = 3,
+    dropout: float = 0.0,
+):
+    set_seed(seed)
+
+    model = GAT_TBModel(
+        node_feat_dim=num_nodes,
+        edge_feat_dim=edge_feat_dim,
+        hidden_dim=n_hid_units,
+        FEATURE_KEYS=FEATURE_KEYS,
+        num_layers=gat_layers,
+        heads=gat_heads,
+        dropout=dropout,
+    )
+    opt = torch.optim.Adam(model.parameters(), learning_rate)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=decay_rate)
+
+    losses, sampled_states, logZs, rewards = [], [], [], []
+    minibatch_loss = 0.0
+
+    for episode in tqdm(range(n_episodes), ncols=40):
+        state = []
+        graph_data = state_to_data(state, num_nodes, num_colors)
+        P_F_s, P_B_s = model(graph_data)
+
+        total_log_P_F = 0.0
+        total_log_P_B = 0.0
+
+        for t in range(max_edges):
+            mask = calculate_forward_mask_from_state(state, target_expr, FEATURE_KEYS)
+            P_F_s = torch.where(mask, P_F_s, torch.tensor(-1000.0, device=P_F_s.device, dtype=P_F_s.dtype))
+            P_F_s = torch.where(torch.isnan(P_F_s), torch.full_like(P_F_s, -100.0), P_F_s)
+
+            categorical = Categorical(logits=P_F_s)
+            action = categorical.sample()
+            action_idx = int(action.item())
+
+            new_state = state + [FEATURE_KEYS[action_idx]]
+            total_log_P_F = total_log_P_F + categorical.log_prob(action)
+
+            if t == max_edges - 1:
+                reward = reward_fidelity(target_state, new_state, num_colors)
+
+            graph_data = state_to_data(new_state, num_nodes, num_colors)
+            P_F_s, P_B_s = model(graph_data)
+
+            bmask = calculate_backward_mask_from_state(new_state, FEATURE_KEYS)
+            P_B_s = torch.where(bmask, P_B_s, torch.tensor(-1000.0, device=P_B_s.device, dtype=P_B_s.dtype))
+            P_B_s = torch.where(torch.isnan(P_B_s), torch.full_like(P_B_s, -100.0), P_B_s)
+            total_log_P_B = total_log_P_B + Categorical(logits=P_B_s).log_prob(action)
+
+            state = new_state
+
+        minibatch_loss = minibatch_loss + trajectory_balance_loss(
+            model.logZ,
+            total_log_P_F,
+            total_log_P_B,
+            reward,
+        )
+
+        sampled_states.append(state)
+        rewards.append(reward)
+
+        if episode % update_freq == 0:
+            losses.append(float(minibatch_loss.item()))
+            logZs.append(float(model.logZ.item()))
+
+            minibatch_loss.backward()
+            opt.step()
+            opt.zero_grad()
+            scheduler.step()
+
+            minibatch_loss = 0.0
+
+            torch.save(
+                {
+                    "epoch": episode,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": opt.state_dict(),
+                    "loss": losses,
+                },
+                "GATTBmodel.pth",
+            )
+
+    return sampled_states, losses, logZs, rewards
+
+
+def Transformer_TB_train(
+    num_colors,
+    num_nodes,
+    FEATURE_KEYS,
+    target_expr,
+    target_state,
+    n_episodes,
+    learning_rate,
+    decay_rate,
+    seed,
+    update_freq,
+    max_edges,
+    n_hid_units,
+    edge_feat_dim,
+    tf_heads: int = 4,
+    tf_layers: int = 3,
+    dropout: float = 0.0,
+):
+    set_seed(seed)
+
+    model = Transformer_TBModel(
+        node_feat_dim=num_nodes,
+        edge_feat_dim=edge_feat_dim,
+        hidden_dim=n_hid_units,
+        FEATURE_KEYS=FEATURE_KEYS,
+        num_layers=tf_layers,
+        heads=tf_heads,
+        dropout=dropout,
+    )
+    opt = torch.optim.Adam(model.parameters(), learning_rate)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=decay_rate)
+
+    losses, sampled_states, logZs, rewards = [], [], [], []
+    minibatch_loss = 0.0
+
+    for episode in tqdm(range(n_episodes), ncols=40):
+        state = []
+        graph_data = state_to_data(state, num_nodes, num_colors)
+        P_F_s, P_B_s = model(graph_data)
+
+        total_log_P_F = 0.0
+        total_log_P_B = 0.0
+
+        for t in range(max_edges):
+            mask = calculate_forward_mask_from_state(state, target_expr, FEATURE_KEYS)
+            P_F_s = torch.where(mask, P_F_s, torch.tensor(-1000.0, device=P_F_s.device, dtype=P_F_s.dtype))
+            P_F_s = torch.where(torch.isnan(P_F_s), torch.full_like(P_F_s, -100.0), P_F_s)
+
+            categorical = Categorical(logits=P_F_s)
+            action = categorical.sample()
+            action_idx = int(action.item())
+
+            new_state = state + [FEATURE_KEYS[action_idx]]
+            total_log_P_F = total_log_P_F + categorical.log_prob(action)
+
+            if t == max_edges - 1:
+                reward = reward_fidelity(target_state, new_state, num_colors)
+
+            graph_data = state_to_data(new_state, num_nodes, num_colors)
+            P_F_s, P_B_s = model(graph_data)
+
+            bmask = calculate_backward_mask_from_state(new_state, FEATURE_KEYS)
+            P_B_s = torch.where(bmask, P_B_s, torch.tensor(-1000.0, device=P_B_s.device, dtype=P_B_s.dtype))
+            P_B_s = torch.where(torch.isnan(P_B_s), torch.full_like(P_B_s, -100.0), P_B_s)
+            total_log_P_B = total_log_P_B + Categorical(logits=P_B_s).log_prob(action)
+
+            state = new_state
+
+        minibatch_loss = minibatch_loss + trajectory_balance_loss(
+            model.logZ,
+            total_log_P_F,
+            total_log_P_B,
+            reward,
+        )
+
+        sampled_states.append(state)
+        rewards.append(reward)
+
+        if episode % update_freq == 0:
+            losses.append(float(minibatch_loss.item()))
+            logZs.append(float(model.logZ.item()))
+
+            minibatch_loss.backward()
+            opt.step()
+            opt.zero_grad()
+            scheduler.step()
+
+            minibatch_loss = 0.0
+
+            torch.save(
+                {
+                    "epoch": episode,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": opt.state_dict(),
+                    "loss": losses,
+                },
+                "TransformerTBmodel.pth",
+            )
+
+    return sampled_states, losses, logZs, rewards

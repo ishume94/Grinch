@@ -3,6 +3,7 @@ import torch
 import re
 from sympy import sympify
 from torch_geometric.nn import GINConv, GINEConv
+from torch_geometric.nn import GATv2Conv, TransformerConv
 from torch_geometric.nn import global_mean_pool, global_add_pool
 from torch_geometric.data import Data
 from .utils import *
@@ -16,6 +17,10 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+    
+###################################################################################
+#### MODELS FOR TB MODEL ##########################################################
+###################################################################################
 
 class TBModel(nn.Module):
   def __init__(self, num_hid, FEATURE_KEYS):
@@ -158,6 +163,218 @@ class GINE_TBModel(nn.Module):
         P_F = logits[..., :len(self.FEATURE_KEYS)]
         P_B = logits[..., len(self.FEATURE_KEYS):]
         return P_F.squeeze(), P_B.squeeze()
+
+class GATEncoder(nn.Module):
+    """
+    Graph Attention encoder using GATv2Conv.
+    Supports edge features by projecting edge_attr to hidden_dim and passing
+    it via edge_dim (PyG).
+    """
+    def __init__(
+        self,
+        node_feat_dim: int,
+        edge_feat_dim: int,
+        hidden_dim: int,
+        num_layers: int = 3,
+        heads: int = 4,
+        dropout: float = 0.0,
+        use_residual: bool = True,
+    ):
+        super().__init__()
+        self.node_encoder = nn.Linear(node_feat_dim, hidden_dim)
+
+        self.edge_encoders = nn.ModuleList()
+        self.convs = nn.ModuleList()
+        self.dropout = float(dropout)
+        self.use_residual = bool(use_residual)
+
+        for _ in range(num_layers):
+            self.edge_encoders.append(
+                nn.Sequential(
+                    nn.Linear(edge_feat_dim, hidden_dim),
+                    nn.ReLU(),
+                    nn.Linear(hidden_dim, hidden_dim),
+                )
+            )
+            # concat=False keeps output dim = hidden_dim regardless of heads
+            self.convs.append(
+                GATv2Conv(
+                    in_channels=hidden_dim,
+                    out_channels=hidden_dim,
+                    heads=heads,
+                    concat=False,
+                    dropout=dropout,
+                    edge_dim=hidden_dim,
+                    add_self_loops=True,
+                )
+            )
+
+        self.final = nn.Linear(hidden_dim, hidden_dim)
+
+    def forward(self, x, edge_index, edge_attr):
+        x = self.node_encoder(x)
+
+        for conv, edge_encoder in zip(self.convs, self.edge_encoders):
+            h_in = x
+            e = edge_encoder(edge_attr) if edge_attr is not None else None
+
+            x = conv(x, edge_index, e)
+            x = nn.functional.elu(x)
+            x = nn.functional.dropout(x, p=self.dropout, training=self.training)
+
+            if self.use_residual:
+                x = x + h_in
+
+        return self.final(x)
+
+
+class GAT_TBModel(nn.Module):
+    def __init__(
+        self,
+        node_feat_dim: int,
+        edge_feat_dim: int,
+        hidden_dim: int,
+        FEATURE_KEYS,
+        num_layers: int = 3,
+        heads: int = 4,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.encoder = GATEncoder(
+            node_feat_dim=node_feat_dim,
+            edge_feat_dim=edge_feat_dim,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            heads=heads,
+            dropout=dropout,
+        )
+        self.pool = global_add_pool
+        self.decoder = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 2 * len(FEATURE_KEYS)),  # Forward and Backward
+        )
+        self.logZ = nn.Parameter(torch.ones(1))
+        self.FEATURE_KEYS = FEATURE_KEYS
+
+    def forward(self, data):
+        x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
+        node_emb = self.encoder(x, edge_index, edge_attr)
+        graph_emb = self.pool(node_emb, batch)
+        logits = self.decoder(graph_emb)
+        P_F = logits[..., : len(self.FEATURE_KEYS)]
+        P_B = logits[..., len(self.FEATURE_KEYS) :]
+        return P_F.squeeze(), P_B.squeeze()
+
+
+# ---------------------------------------------------------------------
+# Graph Transformer encoder + TB model
+# ---------------------------------------------------------------------
+
+class GraphTransformerEncoder(nn.Module):
+    """
+    Graph Transformer encoder using PyG's TransformerConv (attention on graphs).
+    Supports edge features via edge_dim.
+    """
+    def __init__(
+        self,
+        node_feat_dim: int,
+        edge_feat_dim: int,
+        hidden_dim: int,
+        num_layers: int = 3,
+        heads: int = 4,
+        dropout: float = 0.0,
+        use_residual: bool = True,
+    ):
+        super().__init__()
+        self.node_encoder = nn.Linear(node_feat_dim, hidden_dim)
+
+        self.edge_encoders = nn.ModuleList()
+        self.convs = nn.ModuleList()
+        self.dropout = float(dropout)
+        self.use_residual = bool(use_residual)
+
+        for _ in range(num_layers):
+            self.edge_encoders.append(
+                nn.Sequential(
+                    nn.Linear(edge_feat_dim, hidden_dim),
+                    nn.ReLU(),
+                    nn.Linear(hidden_dim, hidden_dim),
+                )
+            )
+            # concat=False keeps output dim = hidden_dim regardless of heads
+            self.convs.append(
+                TransformerConv(
+                    in_channels=hidden_dim,
+                    out_channels=hidden_dim,
+                    heads=heads,
+                    concat=False,
+                    dropout=dropout,
+                    edge_dim=hidden_dim,
+                    beta=True,  # learnable skip connection gate
+                )
+            )
+
+        self.final = nn.Linear(hidden_dim, hidden_dim)
+
+    def forward(self, x, edge_index, edge_attr):
+        x = self.node_encoder(x)
+
+        for conv, edge_encoder in zip(self.convs, self.edge_encoders):
+            h_in = x
+            e = edge_encoder(edge_attr) if edge_attr is not None else None
+
+            x = conv(x, edge_index, e)
+            x = nn.functional.relu(x)
+            x = nn.functional.dropout(x, p=self.dropout, training=self.training)
+
+            if self.use_residual:
+                x = x + h_in
+
+        return self.final(x)
+
+
+class Transformer_TBModel(nn.Module):
+    def __init__(
+        self,
+        node_feat_dim: int,
+        edge_feat_dim: int,
+        hidden_dim: int,
+        FEATURE_KEYS,
+        num_layers: int = 3,
+        heads: int = 4,
+        dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.encoder = GraphTransformerEncoder(
+            node_feat_dim=node_feat_dim,
+            edge_feat_dim=edge_feat_dim,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            heads=heads,
+            dropout=dropout,
+        )
+        self.pool = global_add_pool
+        self.decoder = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 2 * len(FEATURE_KEYS)),  # Forward and Backward
+        )
+        self.logZ = nn.Parameter(torch.ones(1))
+        self.FEATURE_KEYS = FEATURE_KEYS
+
+    def forward(self, data):
+        x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
+        node_emb = self.encoder(x, edge_index, edge_attr)
+        graph_emb = self.pool(node_emb, batch)
+        logits = self.decoder(graph_emb)
+        P_F = logits[..., : len(self.FEATURE_KEYS)]
+        P_B = logits[..., len(self.FEATURE_KEYS) :]
+        return P_F.squeeze(), P_B.squeeze()
+
+####################################################################################################
+##### END OF MODELS FOR TB #########################################################################
+####################################################################################################
 
 def trajectory_balance_loss(logZ, log_P_F, log_P_B, reward):
     """Trajectory balance objective converted into mean squared error loss."""

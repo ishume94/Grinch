@@ -5,6 +5,20 @@ from sympy import sympify, sqrt
 from itertools import combinations
 from torch_geometric.data import Data
 import torch
+import sys
+
+
+def parse_args(argv):
+    """
+    Parses command-line args of the form key=value into a dict.
+    Example: python driver.py n_a=2 foo=bar  -> {"n_a": "2", "foo": "bar"}
+    """
+    out = {}
+    for a in argv[1:]:
+        if "=" in a:
+            k, v = a.split("=", 1)
+            out[k.strip()] = v.strip()
+    return out
 
 def all_perfect_matchings(edge_list):
     # Get total number of unique nodes (ignoring color)

@@ -8,13 +8,33 @@ import itertools
 from itertools import combinations
 
 # Define number of nodes and colors
-num_nodes, num_colors = 6, 3 #4, 2 for 4D-GHZ. 6, 3 for 6D-GHZ
-
+num_nodes, num_colors = 3, 2 #4, 2 for (4,2)-GHZ. 6, 3 for (6,3)-GHZ. 3, 2 for (3,2)-GHZ
+# If the number of optical paths is odd, you will require an ancilla qubit. 
+args = parse_args(sys.argv) # Pass in the command line the number of ancillas as n_a=Ancilla nodes
+n_a = int(args.get("n_a", "0"))  # default: 0 ancillas
 print(f"Number of optical paths: {num_nodes}, Number of modes: {num_colors}")
+
 node_pairs = list(itertools.combinations(range(num_nodes), 2))
 color_pairs = list(itertools.product(range(num_colors), repeat=2))
 FEATURE_KEYS = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in color_pairs]
 print("Size of feature keys = {}".format(len(FEATURE_KEYS)))
+
+if n_a > 0:
+    print(f"Number of ancilla nodes: {n_a}")
+    ancilla_color = 0
+    ancilla_nodes = range(num_nodes, num_nodes + n_a)
+
+    ancilla_feature_keys = [((i, a), (c, ancilla_color))
+                            for a in ancilla_nodes
+                            for i in range(num_nodes)
+                            for c in range(num_colors)]
+
+    FEATURE_KEYS.extend(ancilla_feature_keys)
+    print(f"Added ancilla features = {len(ancilla_feature_keys)}")
+    print(f"Ancilla features = {ancilla_feature_keys}")
+    print("Size of feature keys w/ancilla= {}".format(len(FEATURE_KEYS)))
+    num_nodes = num_nodes + n_a #Update number of nodes
+    print(f"Updated number of nodes including ancillas: {num_nodes}")
 # Fixed hyperparameters.
 n_hid_units = 128 #512 for MLP, 128 for GIN/GAT/Transformer
 edge_feat_dim = 2 #Dimension of edge features, 2 for pair of colors
@@ -23,11 +43,12 @@ learning_rate = 1e-3
 decay_rate = 1.00
 update_freq = 10 #Update every episode
 seed = 666
-max_edges = 10 #4 for 4D_GHZ and 9 for 6D_GHZ
-#target_expr = "1|0000⟩ + 1|1111⟩" #4D-GHZ
-target_expr = "1|000000⟩ + 1|111111⟩+ 1|222222⟩" #6D-GHZ
+max_edges = 6 #4 for (4,2)-GHZ and 9 for (6,3)-GHZ
+target_expr = "1|0000⟩ + 1|1110⟩" #(3,2)-GHZ with ancilla |\psi⟩ = 1/sqrt(2) (|000⟩ + |111⟩) tensor |0⟩
+#target_expr = "1|0000⟩ + 1|1111⟩" #(4,2)-GHZ
+#target_expr = "1|000000⟩ + 1|111111⟩+ 1|222222⟩" #(6,3)-GHZ
 target_state = parse_dirac_expression(target_expr, num_nodes, num_colors)
-fig_name = "6D_GHZ"
+fig_name = "3D_GHZ"
 
 print("For all experiments, our hyperparameters will be:")
 print("    + n_hid_units={}".format(n_hid_units))

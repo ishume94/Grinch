@@ -31,7 +31,7 @@ if n_a > 0:
 
     FEATURE_KEYS.extend(ancilla_feature_keys)
     print(f"Added ancilla features = {len(ancilla_feature_keys)}")
-    print(f"Ancilla features = {ancilla_feature_keys}")
+    #print(f"Ancilla features = {ancilla_feature_keys}") 
     print("Size of feature keys w/ancilla= {}".format(len(FEATURE_KEYS)))
     num_nodes = num_nodes + n_a #Update number of nodes
     print(f"Updated number of nodes including ancillas: {num_nodes}")

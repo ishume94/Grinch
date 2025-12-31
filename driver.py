@@ -16,7 +16,7 @@ color_pairs = list(itertools.product(range(num_colors), repeat=2))
 FEATURE_KEYS = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in color_pairs]
 print("Size of feature keys = {}".format(len(FEATURE_KEYS)))
 # Fixed hyperparameters.
-n_hid_units = 8 #512 for MLP, 8 for GIN
+n_hid_units = 128 #512 for MLP, 128 for GIN/GAT/Transformer
 edge_feat_dim = 2 #Dimension of edge features, 2 for pair of colors
 n_episodes = 20000
 learning_rate = 1e-3

@@ -1,8 +1,8 @@
 # Grinch
 
-This repository contains code for **Grinch**.
+This repository contains code for **Bottom-Up Automated Design of Quantum Optical Circuits Using Reward-Driven Generative Models.**
 
-- `driver.py` is the main entry point and includes the training configuration (target states, maximum number of edges, etc.), training function to employ and result analysis.
+- `driver.py` is the main entry point and includes the training configuration (target states, maximum number of edges, etc.), sampling function to generate optical circuits and result analysis.
 
 ## Overview
 
@@ -25,19 +25,19 @@ After a terminal graph is sampled, the edge weights are optimized via L-BFGS-B:
 If `pruning=True`, the code attempts to prune terminal graphs using the optimized weights:
 
 - Any edge with $|w| < 0.01$ is removed.
-- The pruned graph is kept **only if** its fidelity remains high (default threshold: \(F \ge 0.99\)).
-- Accepted pruned graphs are saved for later inspection.
+- The pruned graph is kept **only if** its fidelity remains high (default threshold: $\mathcal{F}(\mathcal G,\boldsymbol{w}^*) \ge 0.99$ with $\boldsymbol{w}^*$ being the previously optimized weights).
+- Accepted pruned graphs are saved for result analysis.
 
 ## Target state examples
 
 You can define target states directly in `driver.py`. All states are properly normalized inside the code. Example expressions:
 
 - **(4,2)-GHZ**
-  - `1|0000⟩ + 1|1111⟩` 
-  - Interpreted as $\frac{1}{\sqrt{2}}(|0000\rangle + |1111\rangle)$
+  - Target: `1|0000⟩ + 1|1111⟩` 
+  - Interpreted as $\frac{1}{\sqrt{2}}(|0000\rangle + |1111\rangle)$ inside the code for Fidelity calculation.
 
 - **(6,3)-GHZ**
-  - `1|000000⟩ + 1|111111⟩ + 1|222222⟩`
+  - Target: `1|000000⟩ + 1|111111⟩ + 1|222222⟩`
 
 ### Targets requiring ancilla photons
 The default ancilla state is $|0\rangle$. With multiple ancilla photons, the full state is interpreted as:
@@ -49,10 +49,8 @@ For states that require ancilla photons, explicitly include the ancilla in the t
 - **(3,2)-GHZ with one ancilla photon**
   - Target: `1|0000⟩ + 1|1110⟩`
 
-- **\(|D(3,(1,1,1))\rangle \otimes |0\rangle\)**
+- **$|D(3,(1,1,1))\rangle \otimes |0\rangle$**
   - Target: `1|0120⟩ + 1|0210⟩ + 1|1020⟩ + 1|1200⟩ + 1|2010⟩ + 1|2100⟩`
-
-
 
 ## Running
 
@@ -63,17 +61,13 @@ python driver.py > out.log
 #With ancilla photons
 python driver.py n_a=1 > out.log
 ```
-
-### Available models (GFlowNets w/Trajectory Balance training objective)
+### Available models (GFlowNets with Trajectory Balance)
 
 The repository includes several architectures for Trajectory Balance training:
 
-TB_train: MLP
+- **`TB_train`** — Multi-Layer Perceptron (MLP), can use a node embedding.
+- **`GIN_TB_train`** — Graph Isomorphism Network (GIN)
+- **`GINE_TB_train`** — GIN with edge features (GINE)
+- **`GAT_TB_train`** — Graph Attention Network (GAT)
+- **`Transformer_TB_train`** — Graph Transformer
 
-GIN_TB_train: Graph Isomorphism Network (GIN)
-
-GINE_TB_train: GIN with edge features (GINE)
-
-GAT_TB_train: Graph Attention Network (GAT)
-
-Transformer_TB_train: Graph Transformer

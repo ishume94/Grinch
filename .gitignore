@@ -7,3 +7,4 @@ gflow_qoc/__pycache__/*
 *.egg-info
 Results
 .vscode/*
+OpticalCircuits.ipynb

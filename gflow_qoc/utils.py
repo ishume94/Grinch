@@ -106,17 +106,70 @@ def state_vector_to_dirac_notation(state_vector, n_nodes, num_colors, tol=1e-16)
             terms.append(f"{amp_str}|{basis_state}⟩")
     return " + ".join(terms)
 
+
+def compute_fidelity(weights, state, target_state, num_colors):
+    normalized = build_normalized_state(state, weights, num_colors)
+    overlap = np.vdot(target_state, normalized)
+    return float(np.abs(overlap)**2)
+
 def fidelity_objective(weights, state, target_state, num_colors):
     try:
-        normalized = build_normalized_state(state, weights, num_colors)
-        overlap = np.vdot(target_state, normalized)
-        fidelity = abs(overlap)**2
-        return -fidelity  # we minimize, so negate
+        fidelity = compute_fidelity(weights, state, target_state, num_colors)
+        return -fidelity # we minimize, so negate
     except Exception as e:
         #print("Error during fidelity evaluation:", e)
-        return 0.1  # penalty for failure
+        return 0.1 # penalty for failure. 
 
-def reward_fidelity(target_state, state, num_colors):
+def fidelity_l1_objective(weights, state, target_state, num_colors, alpha):
+    try:
+        fidelity = compute_fidelity(weights, state, target_state, num_colors)
+        penalty = alpha * np.sum(np.abs(weights))
+        return -fidelity + penalty # we minimize, so negate
+    except Exception as e:
+        #print("Error during fidelity evaluation:", e)
+        return len(state)*10  # penalty for failure. 
+        #  I use len state to ensure that the L1 regularization does not break the clauses for invalid states, 
+        # since weights are bound from -1 to 1, the L1 norm is at most len(state). 
+
+def reward_fidelity(target_state, state, num_colors, pruning, alpha=0.1):
+    """This reward function computes the optimal weights and fidelities. Returns squared of fidelity if the state is valid."""
+    # Initial weights
+    init_weights = np.random.uniform(0, 1, len(state))
+
+    # Optimize
+    if pruning:
+        result = minimize(
+            fidelity_l1_objective,
+            init_weights,
+            args=(state, target_state, num_colors, alpha),
+            method='L-BFGS-B',
+            bounds=[(-1, 1)] * len(state),
+            options={'disp': True}
+        )
+        # Optimized weights
+        opt_weights = np.asarray(result.x)
+        l1_term = alpha*np.sum(np.abs(opt_weights))
+        opt_fidelity = l1_term-result.fun
+    else:
+        result = minimize(
+            fidelity_objective,
+            init_weights,
+            args=(state, target_state, num_colors),
+            method='L-BFGS-B',
+            bounds=[(-1, 1)] * len(state),
+            options={'disp': True}
+        )
+        # Optimized weights
+        opt_weights = np.asarray(result.x)
+        opt_fidelity = -result.fun
+
+    if opt_fidelity < 0.0:
+        return 0, opt_weights#opt_fidelity
+    else:
+        return opt_fidelity**2, opt_weights#np.exp(opt_fidelity/2)#**2
+    #return opt_fidelity
+
+def opt_fidelity(target_state, state, num_colors):
     """This reward function computes the optimal weights and fidelities. Returns squared of fidelity if the state is valid."""
     # Initial weights
     init_weights = np.random.uniform(0, 1, len(state))
@@ -131,14 +184,34 @@ def reward_fidelity(target_state, state, num_colors):
         options={'disp': True}
     )
     # Optimized weights
-    opt_weights = result.x
+    #opt_weights = np.asarray(result.x)
     opt_fidelity = -result.fun
 
     if opt_fidelity < 0.0:
         return 0#opt_fidelity
     else:
-        return opt_fidelity**2#np.exp(opt_fidelity/2)#**2
+        return opt_fidelity#np.exp(opt_fidelity/2)#**2
     #return opt_fidelity
+
+def prune_state_by_weight(state, weights, weight_eps=1e-2, keep_at_least=4):
+    """
+    Keeps edges whose |weight| > weight_eps. Ensures at least keep_at_least edges remain
+    by keeping the largest-|w| edges if threshold prunes too much.
+    """
+    weights = np.asarray(weights)
+
+    absw = np.abs(weights)
+    keep = absw > weight_eps
+
+    # if keep.sum() < keep_at_least and len(weights) > 0:
+    #     # keep the top-|w| edges
+    #     top_idx = np.argsort(absw)[::-1][:keep_at_least]
+    #     keep = np.zeros_like(keep, dtype=bool)
+    #     keep[top_idx] = True
+
+    pruned_state = [e for e, k in zip(state, keep) if k]
+    pruned_weights = weights[keep]
+    return pruned_state, pruned_weights, keep
 
 def parse_dirac_expression(expr, num_nodes, num_colors ):
     """

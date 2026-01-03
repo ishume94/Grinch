@@ -47,32 +47,30 @@ def draw_labeled_multigraph(G, attr_name, ax=None):
         bbox={"alpha": 0},
         ax=ax,
     )
-def plot_graph(edge_vec):
+def plot_graph(edge_vec, filename="graph.svg"):
     G = nx.MultiGraph()
     for (a, b), (c1, c2) in edge_vec:
         G.add_edge(a, b, colors=(c1, c2))
     fig, ax = plt.subplots(figsize=(10, 10))
     draw_labeled_multigraph(G, 'colors', ax=ax) #Plots the colors
-    plt.savefig("graph.svg", format='svg', dpi=600)
+    plt.savefig(filename, format='svg', dpi=600)
 
-def histo_fidelity(target_state, ordered_states, num_colors):
+def histo_fidelity(fidelities, filename):
     """
-    Plots a histogram of reward fidelities for a list of states compared to a target state.
-    Args:
-        target_state (list): The target state to compare against.
-        ordered_states (list): A list of states to compute fidelities for.
+    Plots a histogram of fidelities for a list of states with fidelities.
     """
-    # Step 1: Compute reward fidelities
-    fidelities = [reward_fidelity(target_state, s, num_colors) for s in ordered_states]
-    # Step 2: Plot histogram
+    if len(fidelities) > 0 and isinstance(fidelities[0], (tuple, list)):
+        fidelities = [x[0] for x in fidelities]
+
     plt.figure(figsize=(8, 5))
-    plt.hist(fidelities, bins=50, edgecolor='black', alpha=0.7)
+    plt.xlim(0, 1) 
+    plt.hist(fidelities, bins=50, range=(0, 1), edgecolor='black', alpha=0.7)
     plt.xlabel('Reward Fidelity')
     plt.ylabel('Number of States')
     plt.title('Histogram of Reward Fidelities')
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.tight_layout()
-    plt.savefig("histogram.svg", format='svg', dpi=600)
+    plt.savefig(filename, format='svg', dpi=600)
 
 def plot_loss_curve(figure, losses_A, title=""):
     filename = f"{figure}_loss.svg"

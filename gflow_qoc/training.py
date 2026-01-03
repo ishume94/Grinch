@@ -3,7 +3,7 @@ from .utils import *
 from tqdm import tqdm
 from torch.distributions.categorical import Categorical
 
-def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, model, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges):
+def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, model, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, pruning: bool = True):
     set_seed(seed)
 
     # Instantiate model and optimizer
@@ -12,7 +12,8 @@ def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, mod
 
     # To not complicate the code, I'll just accumulate losses here and take a
     # gradient step every `update_freq` episode (at the end of each trajectory).
-    losses, sampled_states, logZs = [], [], []
+    losses, sampled_states, logZs, rewards = [], [], [], []
+    pruned_states = []
     minibatch_loss = 0
 
     for episode in tqdm(range(n_episodes), ncols=40):
@@ -32,7 +33,7 @@ def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, mod
 
             if t == max_edges-1:  # End of trajectory.
                 #reward = reward_f(new_state)#torch.tensor(reward(new_state)).float()
-                reward = reward_fidelity(target_state, new_state, num_colors)
+                reward, opt_weights = reward_fidelity(target_state, new_state, num_colors, pruning)
                 #print("Reward",reward)
             # We recompute P_F and P_B for new_state.
             P_F_s, P_B_s = model(state_to_tensor(new_state,FEATURE_KEYS), FEATURE_KEYS)
@@ -56,6 +57,26 @@ def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, mod
         # We're done with the episode, add the face to the list, and if we are at an
         # update episode, take a gradient step.
         sampled_states.append(state)
+        rewards.append(reward)
+        # Prune states with high fidelity :)
+        if pruning and reward is not None and reward >= 0.99 and opt_weights is not None:
+            pruned_state, pruned_weights, keep_mask = prune_state_by_weight(
+                state, opt_weights,
+                weight_eps=1e-2,
+                keep_at_least=4
+            )
+
+            # recompute fidelity of the pruned state using the pruned weights
+            try:
+                pruned_fid = compute_fidelity(pruned_weights, pruned_state, target_state, num_colors)
+            except Exception:
+                pruned_fid = 0.0
+
+            if pruned_fid >= 0.99: #In theseus they use 0.95 as fidelity limit! We can do better
+                #print(pruned_state)
+                #print("Fidelity after pruning:", pruned_fid)
+                pruned_states.append(pruned_state)
+            
         if episode % update_freq == 0:
             losses.append(minibatch_loss.item())
             logZs.append(model.logZ.item())
@@ -71,9 +92,9 @@ def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, mod
             'loss': losses,
             }, "TBmodel.pth")
     
-    return sampled_states, losses, logZs
+    return sampled_states, losses, logZs, rewards, pruned_states
 
-def GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units):
+def GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, pruning: bool = True):
     set_seed(seed)
 
     # Instantiate model and optimizer
@@ -84,6 +105,7 @@ def GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state,
     # To not complicate the code, I'll just accumulate losses here and take a
     # gradient step every `update_freq` episode (at the end of each trajectory).
     losses, sampled_states, logZs, rewards = [], [], [], []
+    pruned_states = []
     minibatch_loss = 0
 
     for episode in tqdm(range(n_episodes), ncols=40):
@@ -104,7 +126,7 @@ def GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state,
 
             if t == max_edges-1:  # End of trajectory.
                 #reward = reward_f(new_state)#torch.tensor(reward(new_state)).float()
-                reward = reward_fidelity(target_state, new_state, num_colors)
+                reward, opt_weights = reward_fidelity(target_state, new_state, num_colors, pruning)
                 #print("Reward",reward)
             # We recompute P_F and P_B for new_state.
             graph_data = state_to_data(new_state, num_nodes, num_colors)
@@ -130,6 +152,25 @@ def GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state,
         # update episode, take a gradient step.
         sampled_states.append(state)
         rewards.append(reward)
+        # Prune states with high fidelity :)
+        if pruning and reward is not None and reward >= 0.99 and opt_weights is not None:
+            pruned_state, pruned_weights, keep_mask = prune_state_by_weight(
+                state, opt_weights,
+                weight_eps=1e-2,
+                keep_at_least=4
+            )
+
+            # recompute fidelity of the pruned state using the pruned weights
+            try:
+                pruned_fid = compute_fidelity(pruned_weights, pruned_state, target_state, num_colors)
+            except Exception:
+                pruned_fid = 0.0
+
+            if pruned_fid >= 0.99: #In theseus they use 0.95 as fidelity limit! We can do better
+                #print(pruned_state)
+                #print("Fidelity after pruning:", pruned_fid)
+                pruned_states.append(pruned_state)
+            
 
         if episode % update_freq == 0:
             losses.append(minibatch_loss.item())
@@ -146,9 +187,9 @@ def GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state,
             'loss': losses,
             }, "GINTBmodel.pth")
     
-    return sampled_states, losses, logZs, rewards
+    return sampled_states, losses, logZs, rewards, pruned_states
 
-def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, edge_feat_dim):
+def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, edge_feat_dim, pruning: bool = True):
     set_seed(seed)
 
     # Instantiate model and optimizer
@@ -159,6 +200,7 @@ def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state
     # To not complicate the code, I'll just accumulate losses here and take a
     # gradient step every `update_freq` episode (at the end of each trajectory).
     losses, sampled_states, logZs, rewards = [], [], [], []
+    pruned_states = []
     minibatch_loss = 0
 
     for episode in tqdm(range(n_episodes), ncols=40):
@@ -179,7 +221,7 @@ def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state
 
             if t == max_edges-1:  # End of trajectory.
                 #reward = reward_f(new_state)#torch.tensor(reward(new_state)).float()
-                reward = reward_fidelity(target_state, new_state, num_colors)
+                reward, opt_weights = reward_fidelity(target_state, new_state, num_colors, pruning)
                 #print("Reward",reward)
             # We recompute P_F and P_B for new_state.
             graph_data = state_to_data(new_state, num_nodes, num_colors)
@@ -205,6 +247,25 @@ def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state
         # update episode, take a gradient step.
         sampled_states.append(state)
         rewards.append(reward)
+        # Prune states with high fidelity :)
+        if pruning and reward is not None and reward >= 0.99 and opt_weights is not None:
+            pruned_state, pruned_weights, keep_mask = prune_state_by_weight(
+                state, opt_weights,
+                weight_eps=1e-2,
+                keep_at_least=4
+            )
+
+            # recompute fidelity of the pruned state using the pruned weights
+            try:
+                pruned_fid = compute_fidelity(pruned_weights, pruned_state, target_state, num_colors)
+            except Exception:
+                pruned_fid = 0.0
+
+            if pruned_fid >= 0.99: #In theseus they use 0.95 as fidelity limit! We can do better
+                #print(pruned_state)
+                #print("Fidelity after pruning:", pruned_fid)
+                pruned_states.append(pruned_state)
+            
         if episode % update_freq == 0:
             losses.append(minibatch_loss.item())
             logZs.append(model.logZ.item())
@@ -220,7 +281,7 @@ def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state
             'loss': losses,
             }, "GINETBmodel.pth")
 
-    return sampled_states, losses, logZs, rewards
+    return sampled_states, losses, logZs, rewards, pruned_states
 
 def GAT_TB_train(
     num_colors,
@@ -236,6 +297,7 @@ def GAT_TB_train(
     max_edges,
     n_hid_units,
     edge_feat_dim,
+    pruning: bool = True,
     gat_heads: int = 4,
     gat_layers: int = 3,
     dropout: float = 0.0,
@@ -255,6 +317,7 @@ def GAT_TB_train(
     scheduler = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=decay_rate)
 
     losses, sampled_states, logZs, rewards = [], [], [], []
+    pruned_states = []
     minibatch_loss = 0.0
 
     for episode in tqdm(range(n_episodes), ncols=40):
@@ -278,7 +341,7 @@ def GAT_TB_train(
             total_log_P_F = total_log_P_F + categorical.log_prob(action)
 
             if t == max_edges - 1:
-                reward = reward_fidelity(target_state, new_state, num_colors)
+                reward, opt_weights = reward_fidelity(target_state, new_state, num_colors, pruning)
 
             graph_data = state_to_data(new_state, num_nodes, num_colors)
             P_F_s, P_B_s = model(graph_data)
@@ -299,6 +362,24 @@ def GAT_TB_train(
 
         sampled_states.append(state)
         rewards.append(reward)
+        # Prune states with high fidelity :)
+        if pruning and reward is not None and reward >= 0.99 and opt_weights is not None:
+            pruned_state, pruned_weights, keep_mask = prune_state_by_weight(
+                state, opt_weights,
+                weight_eps=1e-2,
+                keep_at_least=4
+            )
+
+            # recompute fidelity of the pruned state using the pruned weights
+            try:
+                pruned_fid = compute_fidelity(pruned_weights, pruned_state, target_state, num_colors)
+            except Exception:
+                pruned_fid = 0.0
+
+            if pruned_fid >= 0.99: #In theseus they use 0.95 as fidelity limit! We can do better
+                #print(pruned_state)
+                #print("Fidelity after pruning:", pruned_fid)
+                pruned_states.append(pruned_state)
 
         if episode % update_freq == 0:
             losses.append(float(minibatch_loss.item()))
@@ -320,9 +401,7 @@ def GAT_TB_train(
                 },
                 "GATTBmodel.pth",
             )
-
-    return sampled_states, losses, logZs, rewards
-
+    return sampled_states, losses, logZs, rewards, pruned_states
 
 def Transformer_TB_train(
     num_colors,
@@ -338,6 +417,7 @@ def Transformer_TB_train(
     max_edges,
     n_hid_units,
     edge_feat_dim,
+    pruning: bool = True,
     tf_heads: int = 4,
     tf_layers: int = 3,
     dropout: float = 0.0,
@@ -357,6 +437,7 @@ def Transformer_TB_train(
     scheduler = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=decay_rate)
 
     losses, sampled_states, logZs, rewards = [], [], [], []
+    pruned_states = [] 
     minibatch_loss = 0.0
 
     for episode in tqdm(range(n_episodes), ncols=40):
@@ -380,7 +461,7 @@ def Transformer_TB_train(
             total_log_P_F = total_log_P_F + categorical.log_prob(action)
 
             if t == max_edges - 1:
-                reward = reward_fidelity(target_state, new_state, num_colors)
+                reward, opt_weights = reward_fidelity(target_state, new_state, num_colors, pruning)
 
             graph_data = state_to_data(new_state, num_nodes, num_colors)
             P_F_s, P_B_s = model(graph_data)
@@ -401,6 +482,25 @@ def Transformer_TB_train(
 
         sampled_states.append(state)
         rewards.append(reward)
+        # Prune states with high fidelity :)
+        if pruning and reward is not None and reward >= 0.99 and opt_weights is not None:
+            pruned_state, pruned_weights, keep_mask = prune_state_by_weight(
+                state, opt_weights,
+                weight_eps=1e-2,
+                keep_at_least=4
+            )
+
+            # recompute fidelity of the pruned state using the pruned weights
+            try:
+                pruned_fid = compute_fidelity(pruned_weights, pruned_state, target_state, num_colors)
+            except Exception:
+                pruned_fid = 0.0
+
+            if pruned_fid >= 0.99: #In theseus they use 0.95 as fidelity limit! We can do better
+                #print(pruned_state)
+                #print("Fidelity after pruning:", pruned_fid)
+                pruned_states.append(pruned_state)
+                
 
         if episode % update_freq == 0:
             losses.append(float(minibatch_loss.item()))
@@ -423,4 +523,4 @@ def Transformer_TB_train(
                 "TransformerTBmodel.pth",
             )
 
-    return sampled_states, losses, logZs, rewards
+    return sampled_states, losses, logZs, rewards, pruned_states

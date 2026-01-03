@@ -2,7 +2,9 @@
 
 This repository contains code for **Bottom-Up Automated Design of Quantum Optical Circuits Using Reward-Driven Generative Models.**
 
-- `driver.py` is the main entry point and includes the training configuration (target states, maximum number of edges, etc.), sampling function to generate optical circuits and result analysis.
+- `driver.py` is the main file to run and includes the training configuration (target states, maximum number of edges, etc.), sampling function to generate optical circuits and result analysis.
+- Clone the repositary and install with `pip install -e .`
+- Required packages: `scipy`, `torch`, `torch-geometric`, `matplotlib`, `sympy`, `tqdm`.
 
 ## Overview
 

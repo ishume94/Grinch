@@ -108,6 +108,14 @@ for fid, _s in state_fids[:min(20, len(state_fids))]:
 
 t3 = time.time()
 print(f"Sorting time: {t3 - t2:.2f} seconds")
+
+plot_graph(ordered_states[0], filename=fig_name + "_best_state.svg")
+histo_fidelity(state_fids, filename=fig_name + "_fidelity_all_states_histogram.svg")
+plot_loss_curve(fig_name, losses, title="Trajectory Balance Loss")
+plot_rewards(rewards)
+t4 = time.time()
+print(f"Plotting time: {t4 - t3:.2f} seconds")
+
 if pruning:
     pruned_fids = [(opt_fidelity(target_state, s, num_colors), s) for s in pruned_states]
 
@@ -131,16 +139,8 @@ if pruning:
     print("  #edges:", len(smallest_best_state))
     print("  fidelity:", smallest_best_fid)
 
-    t4 = time.time()
-    print(f"Pruned states sorting time: {t4 - t3:.2f} seconds")
+    tp = time.time()
+    print(f"Pruned states sorting time: {tp - t4:.2f} seconds")
     plot_graph(smallest_best_state, filename=fig_name + "_smallest_best_pruned_state.svg")
     plot_graph(ordered_pruned_states[0], filename=fig_name + "_best_pruned_state.svg")
     histo_fidelity(pruned_fids, filename=fig_name + "_fidelity_pruned_states_histogram.svg")
-
-tp = time.time()
-plot_graph(ordered_states[0], filename=fig_name + "_best_state.svg")
-histo_fidelity(state_fids, filename=fig_name + "_fidelity_all_states_histogram.svg")
-plot_loss_curve(fig_name, losses, title="Trajectory Balance Loss")
-plot_rewards(rewards)
-t5 = time.time()
-print(f"Plotting time: {t5 - tp:.2f} seconds")

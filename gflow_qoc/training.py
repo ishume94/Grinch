@@ -483,11 +483,18 @@ def Transformer_TB_train(
         sampled_states.append(state)
         rewards.append(reward)
         # Prune states with high fidelity :)
-        if pruning and reward is not None and reward >= 0.99 and opt_weights is not None:
-            pruned_state, pruned_weights, keep_mask = prune_state_by_weight(
-                state, opt_weights,
-                weight_eps=1e-2,
-                keep_at_least=4
+        if pruning and reward is not None and reward >= 0.95 and opt_weights is not None:
+            # pruned_state, pruned_weights, keep_mask = prune_state_by_weight(
+            #     state, opt_weights,
+            #     weight_eps=1e-2,
+            #     keep_at_least=4
+            # )
+            pruned_state, pruned_weights, keep_mask = prune_state_by_logic(
+                state,
+                target_state,
+                num_colors,
+                weights=opt_weights,
+            order="increasing_abs_weight",
             )
 
             # recompute fidelity of the pruned state using the pruned weights
@@ -496,7 +503,7 @@ def Transformer_TB_train(
             except Exception:
                 pruned_fid = 0.0
 
-            if pruned_fid >= 0.99: #In theseus they use 0.95 as fidelity limit! We can do better
+            if pruned_fid >= 0.95: #In theseus they use 0.95 as fidelity limit! We can do better
                 #print(pruned_state)
                 #print("Fidelity after pruning:", pruned_fid)
                 pruned_states.append(pruned_state)

@@ -44,7 +44,7 @@ learning_rate = 1e-3
 decay_rate = 1.00
 update_freq = 10 #Update every episode
 seed = 666
-max_edges = 6 #4 for (4,2)-GHZ and 9 for (6,3)-GHZ
+max_edges = 6 
 target_expr = "1|0000⟩ + 1|1110⟩" #(3,2)-GHZ with ancilla |\psi⟩ = 1/sqrt(2) (|000⟩ + |111⟩) tensor |0⟩
 #target_expr = "1|0000⟩ + 1|1111⟩" #(4,2)-GHZ
 #target_expr = "1|000000⟩ + 1|111111⟩+ 1|222222⟩" #(6,3)-GHZ
@@ -116,7 +116,7 @@ plot_rewards(rewards)
 t4 = time.time()
 print(f"Plotting time: {t4 - t3:.2f} seconds")
 
-if pruning:
+if pruning and pruned_states:
     pruned_fids = [(opt_fidelity(target_state, s, num_colors), s) for s in pruned_states]
 
     # Sort by fidelity (descending) for your existing "best pruned state"

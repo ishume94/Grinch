@@ -317,7 +317,7 @@ def satisfies_clauses(state, target_support, num_colors):
     Implements the two logic clauses via PM enumeration:
 
       S: For every idx in target_support, there exists >= 1 perfect matching producing idx.
-      C: For any idx not in target_support, it is forbidden to have exactly 1 PM producing idx.
+      C: For any idx not in target_support, it is forbidden to have exactly 1 PM producing idx. This Clause doesn't work.
 
     Returns:
         bool
@@ -330,12 +330,11 @@ def satisfies_clauses(state, target_support, num_colors):
             return False
 
     # C clause
-    for idx, c in counts.items():
-        if idx not in target_support and c == 1:
-            return False
+    # for idx, c in counts.items():
+    #     if idx not in target_support and c == 1:
+    #         return False
 
     return True
-
 
 def prune_state_by_logic(
     state,

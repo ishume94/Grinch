@@ -53,7 +53,7 @@ target_expr = "1|0000⟩ + 1|1111⟩" #(4,2)-GHZ
 
 target_state = parse_dirac_expression(target_expr, num_nodes, num_colors)
 fig_name = "42_GHZ"
-plot_tb_state_space = False
+plot_tb_state_space = True
 tb_snapshot_dir = f"{fig_name}_tb_snapshots"
 
 print("For all experiments, our hyperparameters will be:")
@@ -134,7 +134,7 @@ for fid, _s in state_fids[:min(20, len(state_fids))]:
 t3 = time.time()
 print(f"Sorting time: {t3 - t2:.2f} seconds")
 
-plot_graph(ordered_states[0], filename=fig_name + "_best_state.svg")
+plot_graph(ordered_states[0], filename=fig_name + "_best_state.svg", n_ancilla=n_a)
 histo_fidelity(state_fids, filename=fig_name + "_fidelity_all_states_histogram.svg")
 plot_loss_curve(fig_name, losses, title="Trajectory Balance Loss")
 plot_rewards(rewards)
@@ -151,12 +151,12 @@ if plot_tb_state_space:
         mid_k=3,
         bottom_k=3,
         random_seed=seed,
-        compressed_depth=1,
+        compressed_depth=3,
         n_ancilla=n_a,
         final_episode=n_episodes,
-        rank_by_final_probability=True,
+        rank_by_final_probability=False,
         show_edge_prob_labels=False,
-        fps=12,
+        fps=24,
     )
     print("TB state space start plot:", tb_plot_outputs["start_plot"])
     print("TB state space end plot:", tb_plot_outputs["end_plot"])
@@ -190,6 +190,6 @@ if pruning and pruned_states:
 
     tp = time.time()
     print(f"Pruned states sorting time: {tp - t4:.2f} seconds")
-    plot_graph(smallest_best_state, filename=fig_name + "_smallest_best_pruned_state.svg")
-    plot_graph(ordered_pruned_states[0], filename=fig_name + "_best_pruned_state.svg")
+    plot_graph(smallest_best_state, filename=fig_name + "_smallest_best_pruned_state.svg", n_ancilla=n_a)
+    plot_graph(ordered_pruned_states[0], filename=fig_name + "_best_pruned_state.svg", n_ancilla=n_a)
     histo_fidelity(pruned_fids, filename=fig_name + "_fidelity_pruned_states_histogram.svg")

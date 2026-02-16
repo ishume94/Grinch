@@ -54,13 +54,118 @@ def draw_labeled_multigraph(G, attr_name, ax=None):
         bbox={"alpha": 0},
         ax=ax,
     )
-def plot_graph(edge_vec, filename="graph.svg"):
-    G = nx.MultiGraph()
-    for (a, b), (c1, c2) in edge_vec:
-        G.add_edge(a, b, colors=(c1, c2))
-    fig, ax = plt.subplots(figsize=(10, 10))
-    draw_labeled_multigraph(G, 'colors', ax=ax) #Plots the colors
-    plt.savefig(filename, format='svg', dpi=600)
+def plot_graph(edge_vec, filename="graph.svg", n_ancilla=0):
+    state = list(edge_vec)
+    if state:
+        total_nodes = max(max(int(n1), int(n2)) for ((n1, n2), _colors) in state) + 1
+    else:
+        total_nodes = 1
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    outer_circle = plt.Circle(
+        (0.0, 0.0),
+        1.0,
+        facecolor="white",
+        edgecolor="#424242",
+        linewidth=1.5,
+        zorder=0,
+    )
+    ax.add_patch(outer_circle)
+
+    node_angles = np.linspace(0, 2 * np.pi, total_nodes, endpoint=False)[::-1]
+    node_positions = {
+        node_idx: np.array([0.72 * np.cos(theta), 0.72 * np.sin(theta)])
+        for node_idx, theta in enumerate(node_angles)
+    }
+
+    pair_counts = {}
+    for ((n1, n2), _colors) in state:
+        pair_key = (int(n1), int(n2))
+        pair_counts[pair_key] = pair_counts.get(pair_key, 0) + 1
+
+    pair_seen = {}
+    for ((n1, n2), (c1, c2)) in state:
+        n1 = int(n1)
+        n2 = int(n2)
+        p1 = node_positions.get(n1)
+        p2 = node_positions.get(n2)
+        if p1 is None or p2 is None:
+            continue
+
+        pair_key = (n1, n2)
+        edge_idx = pair_seen.get(pair_key, 0)
+        pair_seen[pair_key] = edge_idx + 1
+        total_for_pair = pair_counts.get(pair_key, 1)
+        offset = (edge_idx - 0.5 * (total_for_pair - 1)) * 0.10
+
+        edge_vec_np = p2 - p1
+        norm = np.linalg.norm(edge_vec_np)
+        if norm > 1e-9:
+            perp = np.array([-edge_vec_np[1], edge_vec_np[0]]) / norm
+        else:
+            perp = np.zeros(2)
+
+        p1o = p1 + offset * perp
+        p2o = p2 + offset * perp
+        pmid = 0.5 * (p1o + p2o)
+
+        ax.plot(
+            [p1o[0], pmid[0]],
+            [p1o[1], pmid[1]],
+            color=_mode_color(c1),
+            linewidth=2.2,
+            solid_capstyle="round",
+            zorder=1,
+        )
+        ax.plot(
+            [pmid[0], p2o[0]],
+            [pmid[1], p2o[1]],
+            color=_mode_color(c2),
+            linewidth=2.2,
+            solid_capstyle="round",
+            zorder=1,
+        )
+
+    anc = int(max(0, min(int(n_ancilla), total_nodes)))
+    first_anc_idx = total_nodes - anc
+
+    for node_idx, node_pos in node_positions.items():
+        node_fill = "#B0B4BB" if node_idx >= first_anc_idx else "#f5f5f5"
+        ax.add_patch(
+            plt.Circle(
+                (node_pos[0], node_pos[1]),
+                0.12,
+                facecolor=node_fill,
+                edgecolor="black",
+                linewidth=0.8,
+                zorder=2,
+            )
+        )
+        ax.text(
+            node_pos[0],
+            node_pos[1],
+            str(node_idx),
+            fontsize=12,
+            ha="center",
+            va="center",
+            zorder=3,
+        )
+
+    ax.set_xlim(-1.12, 1.12)
+    ax.set_ylim(-1.12, 1.12)
+
+    output_path = Path(filename)
+    if output_path.suffix.lower() in {".svg", ".png"}:
+        base = output_path.with_suffix("")
+    else:
+        base = output_path
+
+    fig.savefig(str(base) + ".svg", format="svg", dpi=600, bbox_inches="tight")
+    fig.savefig(str(base) + ".png", format="png", dpi=600, bbox_inches="tight")
+    plt.close(fig)
 
 def histo_fidelity(fidelities, filename):
     """
@@ -272,12 +377,15 @@ def _draw_state_inset(
             zorder=1,
         )
 
+    anc = int(max(0, min(int(n_ancilla), n_nodes)))
+    first_anc_idx = n_nodes - anc
     for node_idx, node_pos in node_positions.items():
+        node_fill = "#B0B4BB" if node_idx >= first_anc_idx else "#f5f5f5"
         inset.add_patch(
             plt.Circle(
                 (node_pos[0], node_pos[1]),
                 0.14,
-                facecolor="#f5f5f5",
+                facecolor=node_fill,
                 edgecolor="black",
                 linewidth=0.6,
                 zorder=3,
@@ -286,7 +394,7 @@ def _draw_state_inset(
         inset.text(
             node_pos[0],
             node_pos[1],
-            _format_node_label(node_idx, total_nodes=total_nodes, n_ancilla=n_ancilla),
+            str(node_idx),
             fontsize=4.6,
             ha="center",
             va="center",
@@ -956,7 +1064,7 @@ def _draw_tb_structure(
             )
 
     if y_values:
-        column_label_y = max(y_values) + 0.52
+        column_label_y = max(y_values) + 0.60
         root_x = pos.get("s0", (None, None))[0]
         if root_x is not None:
             ax.text(

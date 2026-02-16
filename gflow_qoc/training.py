@@ -1,14 +1,115 @@
 from .gflow_utils import *
 from .utils import *
+import os
 from tqdm import tqdm
 from torch.distributions.categorical import Categorical
 
-def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, model, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, pruning: bool = True):
+def _make_tb_optimizer(model, learning_rate, logZ_lr_mult):
+    if logZ_lr_mult <= 0:
+        raise ValueError("logZ_lr_mult must be > 0.")
+
+    named_params = list(model.named_parameters())
+    logZ_params = [
+        param for name, param in named_params
+        if name == "logZ" or name.endswith(".logZ")
+    ]
+    non_logZ_params = [
+        param for name, param in named_params
+        if not (name == "logZ" or name.endswith(".logZ"))
+    ]
+
+    if not logZ_params:
+        return torch.optim.Adam(model.parameters(), learning_rate)
+
+    param_groups = []
+    if non_logZ_params:
+        param_groups.append({"params": non_logZ_params, "lr": learning_rate})
+    param_groups.append({"params": logZ_params, "lr": learning_rate * logZ_lr_mult})
+    return torch.optim.Adam(param_groups)
+
+
+def _save_tb_snapshot(snapshot_dir, snapshot_prefix, episode, model_kind, model_kwargs, model):
+    snapshot_path = os.path.join(snapshot_dir, f"{snapshot_prefix}_ep{episode:06d}.pth")
+    torch.save(
+        {
+            "episode": int(episode),
+            "model_kind": model_kind,
+            "model_state_dict": model.state_dict(),
+            "model_kwargs": model_kwargs,
+        },
+        snapshot_path,
+    )
+
+
+def TB_train(
+    num_colors,
+    num_nodes,
+    FEATURE_KEYS,
+    target_expr,
+    target_state,
+    model,
+    n_episodes,
+    learning_rate,
+    decay_rate,
+    seed,
+    update_freq,
+    max_edges,
+    pruning: bool = True,
+    logZ_lr_mult: float = 10.0,
+    save_snapshot_history: bool = False,
+    snapshot_every: int = 10,
+    snapshot_dir: str = "tb_snapshots",
+    snapshot_prefix: str = "TB_snapshot",
+):
     set_seed(seed)
 
+    if save_snapshot_history and snapshot_every <= 0:
+        raise ValueError("snapshot_every must be > 0 when save_snapshot_history=True.")
+
     # Instantiate model and optimizer
-    opt = torch.optim.Adam(model.parameters(), learning_rate)
+    opt = _make_tb_optimizer(model, learning_rate, logZ_lr_mult)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=decay_rate)
+
+    model_class = model.__class__.__name__.lower()
+    if model_class == "tbmodel":
+        model_kind = "tb"
+        hidden_dim = None
+        try:
+            hidden_dim = int(model.mlp[0].out_features)
+        except Exception:
+            pass
+        model_kwargs = {"hidden_dim": hidden_dim} if hidden_dim is not None else {}
+    elif model_class == "embtbmodel":
+        model_kind = "embtb"
+        hidden_dim = None
+        n_emb = None
+        try:
+            hidden_dim = int(model.encode_layer[0].out_features)
+        except Exception:
+            pass
+        try:
+            n_emb = int(model.emb_layer.embedding_dim)
+        except Exception:
+            pass
+        model_kwargs = {}
+        if hidden_dim is not None:
+            model_kwargs["hidden_dim"] = hidden_dim
+        if n_emb is not None:
+            model_kwargs["n_emb"] = n_emb
+    else:
+        model_kind = model_class
+        model_kwargs = {}
+
+    if save_snapshot_history:
+        os.makedirs(snapshot_dir, exist_ok=True)
+        _save_tb_snapshot(
+            snapshot_dir=snapshot_dir,
+            snapshot_prefix=snapshot_prefix,
+            episode=0,
+            model_kind=model_kind,
+            model_kwargs=model_kwargs,
+            model=model,
+        )
 
     # To not complicate the code, I'll just accumulate losses here and take a
     # gradient step every `update_freq` episode (at the end of each trajectory).
@@ -87,20 +188,70 @@ def TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, mod
             minibatch_loss = 0
             torch.save({
             'epoch': episode,
+            "model_kind": model_kind,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': opt.state_dict(),
             'loss': losses,
+            "model_kwargs": model_kwargs,
             }, "TBmodel.pth")
+
+        if save_snapshot_history and ((episode + 1) % snapshot_every == 0 or episode == n_episodes - 1):
+            _save_tb_snapshot(
+                snapshot_dir=snapshot_dir,
+                snapshot_prefix=snapshot_prefix,
+                episode=episode + 1,
+                model_kind=model_kind,
+                model_kwargs=model_kwargs,
+                model=model,
+            )
     
     return sampled_states, losses, logZs, rewards, pruned_states
 
-def GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, pruning: bool = True):
+def GIN_TB_train(
+    num_colors,
+    num_nodes,
+    FEATURE_KEYS,
+    target_expr,
+    target_state,
+    n_episodes,
+    learning_rate,
+    decay_rate,
+    seed,
+    update_freq,
+    max_edges,
+    n_hid_units,
+    pruning: bool = True,
+    logZ_lr_mult: float = 10.0,
+    save_snapshot_history: bool = False,
+    snapshot_every: int = 10,
+    snapshot_dir: str = "tb_snapshots",
+    snapshot_prefix: str = "GINTB_snapshot",
+):
     set_seed(seed)
+
+    if save_snapshot_history and snapshot_every <= 0:
+        raise ValueError("snapshot_every must be > 0 when save_snapshot_history=True.")
 
     # Instantiate model and optimizer
     model = GIN_TBModel(num_nodes, n_hid_units, FEATURE_KEYS)
-    opt = torch.optim.Adam(model.parameters(), learning_rate)
+    opt = _make_tb_optimizer(model, learning_rate, logZ_lr_mult)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=decay_rate)
+    model_kind = "gin"
+    model_kwargs = {
+        "node_feat_dim": num_nodes,
+        "hidden_dim": n_hid_units,
+    }
+
+    if save_snapshot_history:
+        os.makedirs(snapshot_dir, exist_ok=True)
+        _save_tb_snapshot(
+            snapshot_dir=snapshot_dir,
+            snapshot_prefix=snapshot_prefix,
+            episode=0,
+            model_kind=model_kind,
+            model_kwargs=model_kwargs,
+            model=model,
+        )
 
     # To not complicate the code, I'll just accumulate losses here and take a
     # gradient step every `update_freq` episode (at the end of each trajectory).
@@ -182,20 +333,72 @@ def GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state,
             minibatch_loss = 0
             torch.save({
             'epoch': episode,
+            "model_kind": model_kind,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': opt.state_dict(),
             'loss': losses,
+            "model_kwargs": model_kwargs,
             }, "GINTBmodel.pth")
+
+        if save_snapshot_history and ((episode + 1) % snapshot_every == 0 or episode == n_episodes - 1):
+            _save_tb_snapshot(
+                snapshot_dir=snapshot_dir,
+                snapshot_prefix=snapshot_prefix,
+                episode=episode + 1,
+                model_kind=model_kind,
+                model_kwargs=model_kwargs,
+                model=model,
+            )
     
     return sampled_states, losses, logZs, rewards, pruned_states
 
-def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, edge_feat_dim, pruning: bool = True):
+def GINE_TB_train(
+    num_colors,
+    num_nodes,
+    FEATURE_KEYS,
+    target_expr,
+    target_state,
+    n_episodes,
+    learning_rate,
+    decay_rate,
+    seed,
+    update_freq,
+    max_edges,
+    n_hid_units,
+    edge_feat_dim,
+    pruning: bool = True,
+    logZ_lr_mult: float = 10.0,
+    save_snapshot_history: bool = False,
+    snapshot_every: int = 10,
+    snapshot_dir: str = "tb_snapshots",
+    snapshot_prefix: str = "GINETB_snapshot",
+):
     set_seed(seed)
+
+    if save_snapshot_history and snapshot_every <= 0:
+        raise ValueError("snapshot_every must be > 0 when save_snapshot_history=True.")
 
     # Instantiate model and optimizer
     model = GINE_TBModel(num_nodes, edge_feat_dim,n_hid_units, FEATURE_KEYS)
-    opt = torch.optim.Adam(model.parameters(), learning_rate)
+    opt = _make_tb_optimizer(model, learning_rate, logZ_lr_mult)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=decay_rate)
+    model_kind = "gine"
+    model_kwargs = {
+        "node_feat_dim": num_nodes,
+        "edge_feat_dim": edge_feat_dim,
+        "hidden_dim": n_hid_units,
+    }
+
+    if save_snapshot_history:
+        os.makedirs(snapshot_dir, exist_ok=True)
+        _save_tb_snapshot(
+            snapshot_dir=snapshot_dir,
+            snapshot_prefix=snapshot_prefix,
+            episode=0,
+            model_kind=model_kind,
+            model_kwargs=model_kwargs,
+            model=model,
+        )
 
     # To not complicate the code, I'll just accumulate losses here and take a
     # gradient step every `update_freq` episode (at the end of each trajectory).
@@ -276,10 +479,22 @@ def GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state
             minibatch_loss = 0
             torch.save({
             'epoch': episode,
+            "model_kind": model_kind,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': opt.state_dict(),
             'loss': losses,
+            "model_kwargs": model_kwargs,
             }, "GINETBmodel.pth")
+
+        if save_snapshot_history and ((episode + 1) % snapshot_every == 0 or episode == n_episodes - 1):
+            _save_tb_snapshot(
+                snapshot_dir=snapshot_dir,
+                snapshot_prefix=snapshot_prefix,
+                episode=episode + 1,
+                model_kind=model_kind,
+                model_kwargs=model_kwargs,
+                model=model,
+            )
 
     return sampled_states, losses, logZs, rewards, pruned_states
 
@@ -301,8 +516,16 @@ def GAT_TB_train(
     gat_heads: int = 4,
     gat_layers: int = 3,
     dropout: float = 0.0,
+    logZ_lr_mult: float = 10.0,
+    save_snapshot_history: bool = False,
+    snapshot_every: int = 10,
+    snapshot_dir: str = "tb_snapshots",
+    snapshot_prefix: str = "GATTB_snapshot",
 ):
     set_seed(seed)
+
+    if save_snapshot_history and snapshot_every <= 0:
+        raise ValueError("snapshot_every must be > 0 when save_snapshot_history=True.")
 
     model = GAT_TBModel(
         node_feat_dim=num_nodes,
@@ -313,8 +536,28 @@ def GAT_TB_train(
         heads=gat_heads,
         dropout=dropout,
     )
-    opt = torch.optim.Adam(model.parameters(), learning_rate)
+    opt = _make_tb_optimizer(model, learning_rate, logZ_lr_mult)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=decay_rate)
+    model_kind = "gat"
+    model_kwargs = {
+        "node_feat_dim": num_nodes,
+        "edge_feat_dim": edge_feat_dim,
+        "hidden_dim": n_hid_units,
+        "num_layers": gat_layers,
+        "heads": gat_heads,
+        "dropout": dropout,
+    }
+
+    if save_snapshot_history:
+        os.makedirs(snapshot_dir, exist_ok=True)
+        _save_tb_snapshot(
+            snapshot_dir=snapshot_dir,
+            snapshot_prefix=snapshot_prefix,
+            episode=0,
+            model_kind=model_kind,
+            model_kwargs=model_kwargs,
+            model=model,
+        )
 
     losses, sampled_states, logZs, rewards = [], [], [], []
     pruned_states = []
@@ -395,11 +638,23 @@ def GAT_TB_train(
             torch.save(
                 {
                     "epoch": episode,
+                    "model_kind": model_kind,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": opt.state_dict(),
                     "loss": losses,
+                    "model_kwargs": model_kwargs,
                 },
                 "GATTBmodel.pth",
+            )
+
+        if save_snapshot_history and ((episode + 1) % snapshot_every == 0 or episode == n_episodes - 1):
+            _save_tb_snapshot(
+                snapshot_dir=snapshot_dir,
+                snapshot_prefix=snapshot_prefix,
+                episode=episode + 1,
+                model_kind=model_kind,
+                model_kwargs=model_kwargs,
+                model=model,
             )
     return sampled_states, losses, logZs, rewards, pruned_states
 
@@ -421,8 +676,16 @@ def Transformer_TB_train(
     tf_heads: int = 4,
     tf_layers: int = 3,
     dropout: float = 0.0,
+    logZ_lr_mult: float = 10.0,
+    save_snapshot_history: bool = False,
+    snapshot_every: int = 10,
+    snapshot_dir: str = "tb_snapshots",
+    snapshot_prefix: str = "TransformerTB_snapshot",
 ):
     set_seed(seed)
+
+    if save_snapshot_history and snapshot_every <= 0:
+        raise ValueError("snapshot_every must be > 0 when save_snapshot_history=True.")
 
     model = Transformer_TBModel(
         node_feat_dim=num_nodes,
@@ -433,12 +696,32 @@ def Transformer_TB_train(
         heads=tf_heads,
         dropout=dropout,
     )
-    opt = torch.optim.Adam(model.parameters(), learning_rate)
+    opt = _make_tb_optimizer(model, learning_rate, logZ_lr_mult)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=decay_rate)
+    model_kind = "transformer"
+    model_kwargs = {
+        "node_feat_dim": num_nodes,
+        "edge_feat_dim": edge_feat_dim,
+        "hidden_dim": n_hid_units,
+        "num_layers": tf_layers,
+        "heads": tf_heads,
+        "dropout": dropout,
+    }
 
     losses, sampled_states, logZs, rewards = [], [], [], []
     pruned_states = [] 
     minibatch_loss = 0.0
+
+    if save_snapshot_history:
+        os.makedirs(snapshot_dir, exist_ok=True)
+        _save_tb_snapshot(
+            snapshot_dir=snapshot_dir,
+            snapshot_prefix=snapshot_prefix,
+            episode=0,
+            model_kind=model_kind,
+            model_kwargs=model_kwargs,
+            model=model,
+        )
 
     for episode in tqdm(range(n_episodes), ncols=40):
         state = []
@@ -523,11 +806,23 @@ def Transformer_TB_train(
             torch.save(
                 {
                     "epoch": episode,
+                    "model_kind": model_kind,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": opt.state_dict(),
                     "loss": losses,
+                    "model_kwargs": model_kwargs,
                 },
                 "TransformerTBmodel.pth",
+            )
+
+        if save_snapshot_history and ((episode + 1) % snapshot_every == 0 or episode == n_episodes - 1):
+            _save_tb_snapshot(
+                snapshot_dir=snapshot_dir,
+                snapshot_prefix=snapshot_prefix,
+                episode=episode + 1,
+                model_kind=model_kind,
+                model_kwargs=model_kwargs,
+                model=model,
             )
 
     return sampled_states, losses, logZs, rewards, pruned_states

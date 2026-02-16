@@ -8,7 +8,7 @@ import itertools
 from itertools import combinations
 
 # Define number of nodes and colors
-num_nodes, num_colors = 3, 2 #4, 2 for (4,2)-GHZ. 6, 3 for (6,3)-GHZ. 3, 2 for (3,2)-GHZ
+num_nodes, num_colors = 4, 2 #4, 2 for (4,2)-GHZ. 6, 3 for (6,3)-GHZ. 3, 2 for (3,2)-GHZ
 # If the number of optical paths is odd, you will require an ancilla qubit. 
 args = parse_args(sys.argv) # Pass in the command line the number of ancillas as n_a=Ancilla nodes
 n_a = int(args.get("n_a", "0"))  # default: 0 ancillas
@@ -39,30 +39,35 @@ if n_a > 0:
 pruning = True
 n_hid_units = 128 #512 for MLP, 128 for GIN/GAT/Transformer
 edge_feat_dim = 2 #Dimension of edge features, 2 for pair of colors
-n_episodes = 20000
+n_episodes = 1000
 learning_rate = 1e-3
+logZ_lr_mult = 10.0
 decay_rate = 1.00
 update_freq = 10 #Update every episode
 seed = 666
-max_edges = 6 
-target_expr = "1|0000⟩ + 1|1110⟩" #(3,2)-GHZ with ancilla |\psi⟩ = 1/sqrt(2) (|000⟩ + |111⟩) tensor |0⟩
-#target_expr = "1|0000⟩ + 1|1111⟩" #(4,2)-GHZ
+max_edges = 4
+#target_expr = "1|0000⟩ + 1|1110⟩" #(3,2)-GHZ with ancilla |\psi⟩ = 1/sqrt(2) (|000⟩ + |111⟩) tensor |0⟩
+target_expr = "1|0000⟩ + 1|1111⟩" #(4,2)-GHZ
 #target_expr = "1|000000⟩ + 1|111111⟩+ 1|222222⟩" #(6,3)-GHZ
 #target_expr = "1|0120⟩ + 1|0210⟩ + 1|1020⟩ + 1|1200⟩ + 1|2010⟩ + 1|2100⟩" # |D(3,(1,1,1))⟩tensor|0⟩ 
 
 target_state = parse_dirac_expression(target_expr, num_nodes, num_colors)
-fig_name = "3D_GHZ"
+fig_name = "42_GHZ"
+plot_tb_state_space = False
+tb_snapshot_dir = f"{fig_name}_tb_snapshots"
 
 print("For all experiments, our hyperparameters will be:")
 print("    + n_hid_units={}".format(n_hid_units))
 print("    + n_episodes={}".format(n_episodes))
 print("    + learning_rate={}".format(learning_rate))
+print("    + logZ_lr_mult={}".format(logZ_lr_mult))
 print("    + decay_rate={}".format(decay_rate))
 print("    + update_freq={}".format(update_freq))
 print("    + seed={}".format(seed))
 print("    + max_edges={}".format(max_edges))
 print("    + Target state:", state_vector_to_dirac_notation(target_state, num_nodes, num_colors))
 print("    + Pruning:", pruning)
+print("    + plot_tb_state_space={}".format(plot_tb_state_space))
 t0 = time.time()
 
 #For TBModel, uncomment the following lines: It requires the model beforehand!!!
@@ -70,12 +75,32 @@ t0 = time.time()
 #model = embTBModel(n_hid_units, FEATURE_KEYS, n_emb=16)
 #sampled_states, losses, logZs, rewards, pruned_states = TB_train(num_colors, num_nodes, FEATURE_KEYS,
 #                                           target_expr, target_state, model, 
-#                                           n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, pruning)
+#                                           n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, pruning, logZ_lr_mult=logZ_lr_mult,
+#                                           save_snapshot_history=plot_tb_state_space, snapshot_every=10, snapshot_dir=tb_snapshot_dir)
 
-#sampled_states, losses, logZs, rewards, pruned_states = GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, pruning)
-#sampled_states, losses, logZs, rewards, pruned_states = GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, edge_feat_dim, pruning)
-#sampled_states, losses, logZs, rewards, pruned_states = GAT_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, edge_feat_dim, pruning)
-sampled_states, losses, logZs, rewards, pruned_states = Transformer_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, edge_feat_dim, pruning)
+#sampled_states, losses, logZs, rewards, pruned_states = GIN_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, pruning, logZ_lr_mult=logZ_lr_mult, save_snapshot_history=plot_tb_state_space, snapshot_every=10, snapshot_dir=tb_snapshot_dir)
+#sampled_states, losses, logZs, rewards, pruned_states = GINE_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, edge_feat_dim, pruning, logZ_lr_mult=logZ_lr_mult, save_snapshot_history=plot_tb_state_space, snapshot_every=10, snapshot_dir=tb_snapshot_dir)
+#sampled_states, losses, logZs, rewards, pruned_states = GAT_TB_train(num_colors, num_nodes, FEATURE_KEYS, target_expr, target_state, n_episodes, learning_rate, decay_rate, seed, update_freq, max_edges, n_hid_units, edge_feat_dim, pruning, logZ_lr_mult=logZ_lr_mult, save_snapshot_history=plot_tb_state_space, snapshot_every=10, snapshot_dir=tb_snapshot_dir)
+sampled_states, losses, logZs, rewards, pruned_states = Transformer_TB_train(
+    num_colors,
+    num_nodes,
+    FEATURE_KEYS,
+    target_expr,
+    target_state,
+    n_episodes,
+    learning_rate,
+    decay_rate,
+    seed,
+    update_freq,
+    max_edges,
+    n_hid_units,
+    edge_feat_dim,
+    pruning,
+    logZ_lr_mult=logZ_lr_mult,
+    save_snapshot_history=plot_tb_state_space,
+    snapshot_every=10,
+    snapshot_dir=tb_snapshot_dir,
+)
 
 with open(fig_name + "_sampled_graphs.p", 'wb') as f:
     pickle.dump(sampled_states, f, pickle.HIGHEST_PROTOCOL)
@@ -113,6 +138,30 @@ plot_graph(ordered_states[0], filename=fig_name + "_best_state.svg")
 histo_fidelity(state_fids, filename=fig_name + "_fidelity_all_states_histogram.svg")
 plot_loss_curve(fig_name, losses, title="Trajectory Balance Loss")
 plot_rewards(rewards)
+
+if plot_tb_state_space:
+    tb_plot_outputs = plot_tb_state_space_dynamics(
+        sampled_states=sampled_states,
+        rewards=rewards,
+        FEATURE_KEYS=FEATURE_KEYS,
+        target_expr=target_expr,
+        snapshot_dir=tb_snapshot_dir,
+        output_prefix=fig_name + "_tb_state_space",
+        top_k=3,
+        mid_k=3,
+        bottom_k=3,
+        random_seed=seed,
+        compressed_depth=1,
+        n_ancilla=n_a,
+        final_episode=n_episodes,
+        rank_by_final_probability=True,
+        show_edge_prob_labels=False,
+        fps=12,
+    )
+    print("TB state space start plot:", tb_plot_outputs["start_plot"])
+    print("TB state space end plot:", tb_plot_outputs["end_plot"])
+    print("TB state space animation:", tb_plot_outputs["animation"])
+
 t4 = time.time()
 print(f"Plotting time: {t4 - t3:.2f} seconds")
 

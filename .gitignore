@@ -8,3 +8,4 @@ gflow_qoc/__pycache__/*
 Results
 .vscode/*
 OpticalCircuits.ipynb
+__pycache__/*

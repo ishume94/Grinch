@@ -157,6 +157,10 @@ if plot_tb_state_space:
         rank_by_final_probability=False,
         show_edge_prob_labels=False,
         fps=24,
+        frame_step=1,
+        max_frames=None,
+        animation_format="mp4",
+        animation_dpi=120,
     )
     print("TB state space start plot:", tb_plot_outputs["start_plot"])
     print("TB state space end plot:", tb_plot_outputs["end_plot"])

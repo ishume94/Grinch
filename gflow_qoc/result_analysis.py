@@ -7,7 +7,7 @@ import re
 from collections import Counter
 from pathlib import Path
 from matplotlib import cm
-from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.animation import FFMpegWriter, ImageMagickWriter, PillowWriter
 from .utils import *
 from .gflow_utils import *
 
@@ -1150,11 +1150,40 @@ def plot_tb_state_space_dynamics(
     rank_by_final_probability=False,
     show_edge_prob_labels=True,
     fps=8,
+    frame_step=1,
+    max_frames=None,
+    animation_format="gif",
+    animation_dpi=140,
 ):
     snapshot_paths = load_tb_snapshot_paths(
         snapshot_dir=snapshot_dir,
         snapshot_glob=snapshot_glob,
     )
+    if not snapshot_paths:
+        raise ValueError(f"No snapshots found in {snapshot_dir}.")
+
+    frame_step = max(1, int(frame_step))
+    animation_snapshot_paths = list(snapshot_paths[::frame_step])
+    if animation_snapshot_paths[-1] != snapshot_paths[-1]:
+        animation_snapshot_paths.append(snapshot_paths[-1])
+
+    if max_frames is not None:
+        max_frames = int(max_frames)
+        if max_frames <= 0:
+            raise ValueError("max_frames must be > 0 when provided.")
+        if len(animation_snapshot_paths) > max_frames:
+            idx = np.linspace(
+                0,
+                len(animation_snapshot_paths) - 1,
+                num=max_frames,
+                dtype=int,
+            )
+            idx = sorted(set(int(i) for i in idx.tolist()))
+            if idx[0] != 0:
+                idx = [0] + idx
+            if idx[-1] != len(animation_snapshot_paths) - 1:
+                idx.append(len(animation_snapshot_paths) - 1)
+            animation_snapshot_paths = [animation_snapshot_paths[i] for i in idx]
 
     num_nodes, num_colors = _infer_num_nodes_num_colors(FEATURE_KEYS)
     first_checkpoint = torch.load(snapshot_paths[0], map_location="cpu")
@@ -1214,17 +1243,13 @@ def plot_tb_state_space_dynamics(
         n_ancilla=n_ancilla,
     )
 
-    episodes = []
-    edge_prob_frames = []
-    traj_prob_frames = []
-    for checkpoint_path in snapshot_paths:
+    def _load_frame_probs(checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
         if checkpoint.get("model_kind", model_kind) != model_kind:
-            continue
+            return None
         model.load_state_dict(checkpoint["model_state_dict"])
         model.eval()
         episode = int(checkpoint.get("episode", _extract_episode_from_path(checkpoint_path)))
-        episodes.append(episode)
         edge_probs, traj_probs = _compute_probs_for_structure(
             model=model,
             structure=structure,
@@ -1233,17 +1258,39 @@ def plot_tb_state_space_dynamics(
             num_nodes=num_nodes,
             num_colors=num_colors,
         )
-        edge_prob_frames.append(edge_probs)
-        traj_prob_frames.append(traj_probs)
+        return {
+            "episode": episode,
+            "edge_probs": edge_probs,
+            "traj_probs": traj_probs,
+        }
 
-    if not episodes:
+    first_frame_path = None
+    first_frame = None
+    for checkpoint_path in animation_snapshot_paths:
+        payload = _load_frame_probs(checkpoint_path)
+        if payload is not None:
+            first_frame_path = checkpoint_path
+            first_frame = payload
+            break
+
+    if first_frame is None:
         raise ValueError(
-            f"No checkpoints with model_kind='{model_kind}' found in {snapshot_dir}."
+            f"No checkpoints with model_kind='{model_kind}' found in animation selection for {snapshot_dir}."
         )
 
-    display_episodes = list(episodes)
-    if final_episode is not None and display_episodes:
-        display_episodes[-1] = int(final_episode)
+    last_frame_path = None
+    last_frame = None
+    for checkpoint_path in reversed(animation_snapshot_paths):
+        payload = _load_frame_probs(checkpoint_path)
+        if payload is not None:
+            last_frame_path = checkpoint_path
+            last_frame = payload
+            break
+
+    if last_frame is None:
+        raise ValueError(
+            f"No checkpoints with model_kind='{model_kind}' found in animation selection for {snapshot_dir}."
+        )
 
     # Keep a fixed probability color scale across all frames and runs.
     edge_norm = plt.Normalize(vmin=0.0, vmax=1.0)
@@ -1254,15 +1301,14 @@ def plot_tb_state_space_dynamics(
 
     start_plot_path = f"{output_prefix}_start.png"
     end_plot_path = f"{output_prefix}_end.png"
-    animation_path = f"{output_prefix}_evolution.gif"
 
     fig, ax = plt.subplots(figsize=(14, fig_height))
     _draw_tb_structure(
         ax=ax,
         structure=structure,
-        edge_probs=edge_prob_frames[0],
-        traj_probs=traj_prob_frames[0],
-        title=f"Reduced TB State Space (Start, episode {display_episodes[0]})",
+        edge_probs=first_frame["edge_probs"],
+        traj_probs=first_frame["traj_probs"],
+        title=f"Reduced TB State Space (Start, episode {first_frame['episode']})",
         edge_norm=edge_norm,
         show_edge_prob_labels=show_edge_prob_labels,
     )
@@ -1274,9 +1320,12 @@ def plot_tb_state_space_dynamics(
     _draw_tb_structure(
         ax=ax,
         structure=structure,
-        edge_probs=edge_prob_frames[-1],
-        traj_probs=traj_prob_frames[-1],
-        title=f"Reduced TB State Space (End, episode {display_episodes[-1]})",
+        edge_probs=last_frame["edge_probs"],
+        traj_probs=last_frame["traj_probs"],
+        title=(
+            f"Reduced TB State Space (End, episode "
+            f"{int(final_episode) if final_episode is not None else last_frame['episode']})"
+        ),
         edge_norm=edge_norm,
         show_edge_prob_labels=show_edge_prob_labels,
     )
@@ -1284,38 +1333,66 @@ def plot_tb_state_space_dynamics(
     fig.savefig(end_plot_path, dpi=220, bbox_inches="tight")
     plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(14, fig_height))
-    _draw_tb_structure(
-        ax=ax,
-        structure=structure,
-        edge_probs=edge_prob_frames[0],
-        traj_probs=traj_prob_frames[0],
-        title=f"Reduced TB State Space (episode {display_episodes[0]})",
-        edge_norm=edge_norm,
-        show_edge_prob_labels=show_edge_prob_labels,
-    )
-    _add_probability_colorbar(fig=fig, ax=ax, norm=edge_norm)
+    def _choose_writer(fmt, fps_value):
+        fmt_norm = str(fmt).strip().lower()
+        if fmt_norm == "mp4":
+            if FFMpegWriter.isAvailable():
+                return FFMpegWriter(fps=fps_value), "mp4"
+            print("[warning] FFMpegWriter not available; falling back to GIF.")
+            fmt_norm = "gif"
 
-    def _update(frame_idx):
+        if fmt_norm == "gif":
+            if ImageMagickWriter.isAvailable():
+                return ImageMagickWriter(fps=fps_value), "gif"
+            print(
+                "[warning] ImageMagickWriter not available; using PillowWriter. "
+                "Long GIFs may consume large RAM."
+            )
+            return PillowWriter(fps=fps_value), "gif"
+
+        raise ValueError("animation_format must be either 'gif' or 'mp4'.")
+
+    writer, animation_ext = _choose_writer(animation_format, fps)
+    animation_path = f"{output_prefix}_evolution.{animation_ext}"
+
+    fig, ax = plt.subplots(figsize=(14, fig_height))
+    rendered_episodes = []
+    with writer.saving(fig, animation_path, dpi=int(animation_dpi)):
         _draw_tb_structure(
             ax=ax,
             structure=structure,
-            edge_probs=edge_prob_frames[frame_idx],
-            traj_probs=traj_prob_frames[frame_idx],
-            title=f"Reduced TB State Space (episode {display_episodes[frame_idx]})",
+            edge_probs=first_frame["edge_probs"],
+            traj_probs=first_frame["traj_probs"],
+            title=f"Reduced TB State Space (episode {first_frame['episode']})",
             edge_norm=edge_norm,
             show_edge_prob_labels=show_edge_prob_labels,
         )
-        return []
+        _add_probability_colorbar(fig=fig, ax=ax, norm=edge_norm)
+        writer.grab_frame()
+        rendered_episodes.append(first_frame["episode"])
 
-    animation = FuncAnimation(
-        fig,
-        _update,
-        frames=len(episodes),
-        interval=max(1, int(1000 / max(1, fps))),
-        blit=False,
-    )
-    animation.save(animation_path, writer=PillowWriter(fps=fps))
+        for checkpoint_path in animation_snapshot_paths:
+            if checkpoint_path == first_frame_path:
+                continue
+            payload = _load_frame_probs(checkpoint_path)
+            if payload is None:
+                continue
+
+            episode_label = payload["episode"]
+            if final_episode is not None and checkpoint_path == last_frame_path:
+                episode_label = int(final_episode)
+
+            _draw_tb_structure(
+                ax=ax,
+                structure=structure,
+                edge_probs=payload["edge_probs"],
+                traj_probs=payload["traj_probs"],
+                title=f"Reduced TB State Space (episode {episode_label})",
+                edge_norm=edge_norm,
+                show_edge_prob_labels=show_edge_prob_labels,
+            )
+            writer.grab_frame()
+            rendered_episodes.append(payload["episode"])
     plt.close(fig)
 
     return {
@@ -1323,6 +1400,7 @@ def plot_tb_state_space_dynamics(
         "end_plot": end_plot_path,
         "animation": animation_path,
         "selected_states": selected_records,
-        "episodes": episodes,
-        "snapshot_paths": snapshot_paths,
+        "episodes": rendered_episodes,
+        "snapshot_paths": animation_snapshot_paths,
+        "all_snapshot_paths": snapshot_paths,
     }

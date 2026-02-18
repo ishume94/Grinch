@@ -13,8 +13,6 @@ from gflow_qoc.result_analysis import (
 )
 from gflow_qoc.utils import opt_fidelity, parse_dirac_expression
 
-
-# Core inputs (set these directly, like in driver.py).
 num_nodes, num_colors = 4, 2  # Optical paths before ancillas.
 n_a = 0
 target_expr = "1|0000⟩ + 1|1111⟩"

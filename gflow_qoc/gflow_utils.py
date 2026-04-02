@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import re
+import itertools
 from sympy import sympify
 from torch_geometric.nn import GINConv, GINEConv
 from torch_geometric.nn import GATv2Conv, TransformerConv
@@ -17,6 +18,72 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+def build_feature_keys(num_nodes, num_colors, n_a=0, c_a=None, verbose=True):
+    """
+    Build action-space feature keys for optical and ancilla edges.
+
+    Args:
+        num_nodes (int): Number of optical paths (before ancillas).
+        num_colors (int): Number of colors/modes.
+        n_a (int): Number of ancilla nodes to append.
+        c_a (Optional[int]): Number of ancilla colors allowed (0..c_a-1).
+            If None, ancilla color is fixed to 0 (legacy behavior).
+        verbose (bool): Print construction details.
+
+    Returns:
+        tuple[list, int]:
+            FEATURE_KEYS and total number of nodes (optical + ancilla).
+    """
+    num_nodes = int(num_nodes)
+    num_colors = int(num_colors)
+    n_a = int(n_a)
+    verbose = bool(verbose)
+
+    if n_a < 0:
+        raise ValueError("n_a must be >= 0.")
+
+    if verbose:
+        print(f"Number of optical paths: {num_nodes}, Number of modes: {num_colors}")
+
+    node_pairs = list(itertools.combinations(range(num_nodes), 2))
+    color_pairs = list(itertools.product(range(num_colors), repeat=2))
+    feature_keys = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in color_pairs]
+
+    if verbose:
+        print("Size of feature keys = {}".format(len(feature_keys)))
+
+    total_nodes = num_nodes
+
+    if n_a > 0:
+        ancilla_colors = int(c_a) if c_a is not None else 1
+        if ancilla_colors < 1:
+            raise ValueError("c_a must be >= 1 when ancilla nodes are used.")
+        if ancilla_colors > num_colors:
+            raise ValueError(f"c_a={ancilla_colors} exceeds num_colors={num_colors}.")
+
+        if verbose:
+            print(f"Number of ancilla nodes: {n_a}")
+            print(f"Ancilla colors allowed: {list(range(ancilla_colors))}")
+
+        ancilla_nodes = range(num_nodes, num_nodes + n_a)
+        ancilla_feature_keys = [
+            ((i, a), (c, ancilla_color))
+            for a in ancilla_nodes
+            for i in range(num_nodes)
+            for c in range(num_colors)
+            for ancilla_color in range(ancilla_colors)
+        ]
+
+        feature_keys.extend(ancilla_feature_keys)
+        total_nodes = num_nodes + n_a
+
+        if verbose:
+            print(f"Added ancilla features = {len(ancilla_feature_keys)}")
+            print("Size of feature keys w/ancilla= {}".format(len(feature_keys)))
+            print(f"Updated number of nodes including ancillas: {total_nodes}")
+
+    return feature_keys, total_nodes
     
 ###################################################################################
 #### MODELS FOR TB MODEL ##########################################################
@@ -376,10 +443,44 @@ class Transformer_TBModel(nn.Module):
 ##### END OF MODELS FOR TB #########################################################################
 ####################################################################################################
 
-def trajectory_balance_loss(logZ, log_P_F, log_P_B, reward):
+def scheduled_beta(
+    episode,
+    beta=1.0,
+    beta_curve=False,
+    beta_start=1e-3,
+    beta_warmup_steps=1000,
+):
+    """
+    Return the TB beta value for this episode.
+
+    If `beta_curve` is False: returns `beta`.
+    If `beta_curve` is True: linearly increases from `beta_start` to `beta`
+    and reaches `beta` after `beta_warmup_steps` iterations.
+    """
+    beta_max = float(beta)
+    if not beta_curve:
+        return beta_max
+
+    if beta_warmup_steps is None or int(beta_warmup_steps) <= 0:
+        return beta_max
+
+    beta_min = min(float(beta_start), beta_max)
+    progress = min(1.0, float(episode + 1) / float(beta_warmup_steps))
+    return beta_min + (beta_max - beta_min) * progress
+
+
+def trajectory_balance_loss(logZ, log_P_F, log_P_B, reward=None, beta=1.0):
     """Trajectory balance objective converted into mean squared error loss."""
-    reward=torch.tensor(reward).float()
-    return (logZ + log_P_F - torch.log(torch.clamp(reward, min=1e-30)) - log_P_B).pow(2)
+    if reward is None:
+        raise ValueError("`reward` must be provided.")
+
+    reward = torch.as_tensor(reward, dtype=logZ.dtype, device=logZ.device)
+    return (
+        logZ
+        + log_P_F
+        - float(beta) * torch.log(torch.clamp(reward, min=1e-30))
+        - log_P_B
+    ).pow(2)
 
 def state_hash(state, FEATURE_KEYS):
     """Returns a binary hash for each submitted state."""

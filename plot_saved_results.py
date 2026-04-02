@@ -1,20 +1,15 @@
-import itertools
 import pickle
 from pathlib import Path
 
 import torch
 
-from gflow_qoc.result_analysis import (
-    histo_fidelity,
-    plot_graph,
-    plot_loss_curve,
-    plot_rewards,
-    plot_tb_state_space_dynamics,
-)
-from gflow_qoc.utils import opt_fidelity, parse_dirac_expression
+from gflow_qoc.result_analysis import *
+from gflow_qoc.gflow_utils import *
+from gflow_qoc.utils import *
 
 num_nodes, num_colors = 4, 2  # Optical paths before ancillas.
 n_a = 0
+c_a = None  # Optional: number of ancilla colors (0..c_a-1). None keeps ancilla fixed to color 0.
 target_expr = "1|0000⟩ + 1|1111⟩"
 fig_name = "32_GHZ"
 seed = 666
@@ -31,29 +26,6 @@ animation_dpi = 120
 def _load_pickle(path):
     with open(path, "rb") as handle:
         return pickle.load(handle)
-
-
-def _build_feature_keys(num_nodes, num_colors, n_a):
-    num_nodes = int(num_nodes)
-    num_colors = int(num_colors)
-    n_a = int(n_a)
-
-    node_pairs = list(itertools.combinations(range(num_nodes), 2))
-    color_pairs = list(itertools.product(range(int(num_colors)), repeat=2))
-    feature_keys = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in color_pairs]
-
-    if n_a > 0:
-        ancilla_color = 0
-        ancilla_nodes = range(num_nodes, num_nodes + n_a)
-        ancilla_feature_keys = [
-            ((i, a), (c, ancilla_color))
-            for a in ancilla_nodes
-            for i in range(num_nodes)
-            for c in range(num_colors)
-        ]
-        feature_keys.extend(ancilla_feature_keys)
-
-    return feature_keys
 
 
 def _find_checkpoint(fig_name):
@@ -126,7 +98,8 @@ def main():
     print(f"  fig_name={fig_name}")
     print(
         f"  num_nodes={num_nodes} (optical), total_nodes={total_nodes}, "
-        f"num_colors={num_colors}, n_a={n_a}"
+        f"num_colors={num_colors}, n_a={n_a}, "
+        f"c_a={(1 if c_a is None else c_a)}"
     )
     print(f"  target_expr={target_expr}")
     print(f"  sampled_states={len(sampled_states)}")
@@ -157,7 +130,13 @@ def main():
 
     if snapshot_dir.exists() and snapshot_dir.is_dir():
         if rewards is not None and len(rewards) == len(sampled_states):
-            feature_keys = _build_feature_keys(num_nodes, num_colors, n_a)
+            feature_keys, _ = build_feature_keys(
+                num_nodes=num_nodes,
+                num_colors=num_colors,
+                n_a=n_a,
+                c_a=c_a,
+                verbose=False,
+            )
             try:
                 tb_outputs = plot_tb_state_space_dynamics(
                     sampled_states=sampled_states,

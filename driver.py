@@ -4,37 +4,20 @@ from gflow_qoc.result_analysis import *
 from gflow_qoc.training import *
 import time
 import pickle
-import itertools
-from itertools import combinations
 
 # Define number of nodes and colors
 num_nodes, num_colors = 4, 2 #4, 2 for (4,2)-GHZ. 6, 3 for (6,3)-GHZ. 3, 2 for (3,2)-GHZ
 # If the number of optical paths is odd, you will require an ancilla qubit. 
-args = parse_args(sys.argv) # Pass in the command line the number of ancillas as n_a=Ancilla nodes
+args = parse_args(sys.argv) # Pass CLI args as key=value, e.g. n_a=1 c_a=2
 n_a = int(args.get("n_a", "0"))  # default: 0 ancillas
-print(f"Number of optical paths: {num_nodes}, Number of modes: {num_colors}")
-
-node_pairs = list(itertools.combinations(range(num_nodes), 2))
-color_pairs = list(itertools.product(range(num_colors), repeat=2))
-FEATURE_KEYS = [((n1, n2), (c1, c2)) for (n1, n2) in node_pairs for (c1, c2) in color_pairs]
-print("Size of feature keys = {}".format(len(FEATURE_KEYS)))
-
-if n_a > 0:
-    print(f"Number of ancilla nodes: {n_a}")
-    ancilla_color = 0
-    ancilla_nodes = range(num_nodes, num_nodes + n_a)
-
-    ancilla_feature_keys = [((i, a), (c, ancilla_color))
-                            for a in ancilla_nodes
-                            for i in range(num_nodes)
-                            for c in range(num_colors)]
-
-    FEATURE_KEYS.extend(ancilla_feature_keys)
-    print(f"Added ancilla features = {len(ancilla_feature_keys)}")
-    #print(f"Ancilla features = {ancilla_feature_keys}") 
-    print("Size of feature keys w/ancilla= {}".format(len(FEATURE_KEYS)))
-    num_nodes = num_nodes + n_a #Update number of nodes
-    print(f"Updated number of nodes including ancillas: {num_nodes}")
+c_a = args.get("c_a")  # Optional: number of ancilla colors (0..c_a-1)
+FEATURE_KEYS, num_nodes = build_feature_keys(
+    num_nodes=num_nodes,
+    num_colors=num_colors,
+    n_a=n_a,
+    c_a=c_a,
+    verbose=True,
+)
 # Fixed hyperparameters.
 pruning = True
 n_hid_units = 128 #512 for MLP, 128 for GIN/GAT/Transformer
@@ -43,6 +26,10 @@ n_episodes = 1000
 learning_rate = 1e-3
 logZ_lr_mult = 10.0
 decay_rate = 1.00
+beta = 1.0
+beta_curve = False
+beta_start = 1e-3
+beta_warmup_steps = 1000
 update_freq = 10 #Update every episode
 seed = 666
 max_edges = 4
@@ -62,6 +49,10 @@ print("    + n_episodes={}".format(n_episodes))
 print("    + learning_rate={}".format(learning_rate))
 print("    + logZ_lr_mult={}".format(logZ_lr_mult))
 print("    + decay_rate={}".format(decay_rate))
+print("    + beta={}".format(beta))
+print("    + beta_curve={}".format(beta_curve))
+print("    + beta_start={}".format(beta_start))
+print("    + beta_warmup_steps={}".format(beta_warmup_steps))
 print("    + update_freq={}".format(update_freq))
 print("    + seed={}".format(seed))
 print("    + max_edges={}".format(max_edges))
@@ -97,6 +88,10 @@ sampled_states, losses, logZs, rewards, pruned_states = Transformer_TB_train(
     edge_feat_dim,
     pruning,
     logZ_lr_mult=logZ_lr_mult,
+    beta=beta,
+    beta_curve=beta_curve,
+    beta_start=beta_start,
+    beta_warmup_steps=beta_warmup_steps,
     save_snapshot_history=plot_tb_state_space,
     snapshot_every=10,
     snapshot_dir=tb_snapshot_dir,

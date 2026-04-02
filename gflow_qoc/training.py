@@ -60,6 +60,10 @@ def TB_train(
     snapshot_every: int = 10,
     snapshot_dir: str = "tb_snapshots",
     snapshot_prefix: str = "TB_snapshot",
+    beta: float = 1.0,
+    beta_curve: bool = False,
+    beta_start: float = 1e-3,
+    beta_warmup_steps: int = 1000,
 ):
     set_seed(seed)
 
@@ -118,6 +122,13 @@ def TB_train(
     minibatch_loss = 0
 
     for episode in tqdm(range(n_episodes), ncols=40):
+        beta_t = scheduled_beta(
+            episode,
+            beta=beta,
+            beta_curve=beta_curve,
+            beta_start=beta_start,
+            beta_warmup_steps=beta_warmup_steps,
+        )
         state = []  # Each episode starts with an empty state.
         P_F_s, P_B_s = model(state_to_tensor(state,FEATURE_KEYS), FEATURE_KEYS)  # Forward and backward policy
         total_log_P_F, total_log_P_B = 0, 0
@@ -152,7 +163,8 @@ def TB_train(
             model.logZ,
             total_log_P_F,
             total_log_P_B,
-            reward,
+            reward=reward,
+            beta=beta_t,
         )
 
         # We're done with the episode, add the face to the list, and if we are at an
@@ -226,6 +238,10 @@ def GIN_TB_train(
     snapshot_every: int = 10,
     snapshot_dir: str = "tb_snapshots",
     snapshot_prefix: str = "GINTB_snapshot",
+    beta: float = 1.0,
+    beta_curve: bool = False,
+    beta_start: float = 1e-3,
+    beta_warmup_steps: int = 1000,
 ):
     set_seed(seed)
 
@@ -260,6 +276,13 @@ def GIN_TB_train(
     minibatch_loss = 0
 
     for episode in tqdm(range(n_episodes), ncols=40):
+        beta_t = scheduled_beta(
+            episode,
+            beta=beta,
+            beta_curve=beta_curve,
+            beta_start=beta_start,
+            beta_warmup_steps=beta_warmup_steps,
+        )
         state = []  # Each episode starts with an empty state.
         graph_data = state_to_data(state, num_nodes, num_colors)
         P_F_s, P_B_s = model(graph_data)
@@ -296,7 +319,8 @@ def GIN_TB_train(
             model.logZ,
             total_log_P_F,
             total_log_P_B,
-            reward,
+            reward=reward,
+            beta=beta_t,
         )
 
         # We're done with the episode, add the face to the list, and if we are at an
@@ -372,6 +396,10 @@ def GINE_TB_train(
     snapshot_every: int = 10,
     snapshot_dir: str = "tb_snapshots",
     snapshot_prefix: str = "GINETB_snapshot",
+    beta: float = 1.0,
+    beta_curve: bool = False,
+    beta_start: float = 1e-3,
+    beta_warmup_steps: int = 1000,
 ):
     set_seed(seed)
 
@@ -407,6 +435,13 @@ def GINE_TB_train(
     minibatch_loss = 0
 
     for episode in tqdm(range(n_episodes), ncols=40):
+        beta_t = scheduled_beta(
+            episode,
+            beta=beta,
+            beta_curve=beta_curve,
+            beta_start=beta_start,
+            beta_warmup_steps=beta_warmup_steps,
+        )
         state = []  # Each episode starts with an empty state.
         graph_data = state_to_data(state, num_nodes, num_colors)
         P_F_s, P_B_s = model(graph_data)
@@ -443,7 +478,8 @@ def GINE_TB_train(
             model.logZ,
             total_log_P_F,
             total_log_P_B,
-            reward,
+            reward=reward,
+            beta=beta_t,
         )
 
         # We're done with the episode, add the face to the list, and if we are at an
@@ -521,6 +557,10 @@ def GAT_TB_train(
     snapshot_every: int = 10,
     snapshot_dir: str = "tb_snapshots",
     snapshot_prefix: str = "GATTB_snapshot",
+    beta: float = 1.0,
+    beta_curve: bool = False,
+    beta_start: float = 1e-3,
+    beta_warmup_steps: int = 1000,
 ):
     set_seed(seed)
 
@@ -564,6 +604,13 @@ def GAT_TB_train(
     minibatch_loss = 0.0
 
     for episode in tqdm(range(n_episodes), ncols=40):
+        beta_t = scheduled_beta(
+            episode,
+            beta=beta,
+            beta_curve=beta_curve,
+            beta_start=beta_start,
+            beta_warmup_steps=beta_warmup_steps,
+        )
         state = []
         graph_data = state_to_data(state, num_nodes, num_colors)
         P_F_s, P_B_s = model(graph_data)
@@ -600,7 +647,8 @@ def GAT_TB_train(
             model.logZ,
             total_log_P_F,
             total_log_P_B,
-            reward,
+            reward=reward,
+            beta=beta_t,
         )
 
         sampled_states.append(state)
@@ -681,6 +729,10 @@ def Transformer_TB_train(
     snapshot_every: int = 10,
     snapshot_dir: str = "tb_snapshots",
     snapshot_prefix: str = "TransformerTB_snapshot",
+    beta: float = 1.0,
+    beta_curve: bool = False,
+    beta_start: float = 1e-3,
+    beta_warmup_steps: int = 1000,
 ):
     set_seed(seed)
 
@@ -724,6 +776,13 @@ def Transformer_TB_train(
         )
 
     for episode in tqdm(range(n_episodes), ncols=40):
+        beta_t = scheduled_beta(
+            episode,
+            beta=beta,
+            beta_curve=beta_curve,
+            beta_start=beta_start,
+            beta_warmup_steps=beta_warmup_steps,
+        )
         state = []
         graph_data = state_to_data(state, num_nodes, num_colors)
         P_F_s, P_B_s = model(graph_data)
@@ -760,7 +819,8 @@ def Transformer_TB_train(
             model.logZ,
             total_log_P_F,
             total_log_P_B,
-            reward,
+            reward=reward,
+            beta=beta_t,
         )
 
         sampled_states.append(state)

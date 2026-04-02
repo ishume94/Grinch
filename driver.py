@@ -40,7 +40,7 @@ target_expr = "1|0000⟩ + 1|1111⟩" #(4,2)-GHZ
 
 target_state = parse_dirac_expression(target_expr, num_nodes, num_colors)
 fig_name = "42_GHZ"
-plot_tb_state_space = True
+plot_tb_state_space = False # Set to True to save TB state space snapshots during training (can be large, e.g., 1000 episodes x 10 snapshots = 10,000 images)
 tb_snapshot_dir = f"{fig_name}_tb_snapshots"
 
 print("For all experiments, our hyperparameters will be:")

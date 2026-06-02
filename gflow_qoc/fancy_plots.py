@@ -286,7 +286,15 @@ def _ranking_windows(sampled_states, metric_values, top_n, num_windows, ranking_
 
         ordered = sorted(rank_scores.items(), key=lambda item: item[1], reverse=highest)
         ranks = {key: rank + 1 for rank, (key, _value) in enumerate(ordered)}
-        per_window.append({"ranks": ranks, "sampled": sampled_here, "scores": rank_scores})
+        per_window.append(
+            {
+                "start": start,
+                "end": end,
+                "ranks": ranks,
+                "sampled": sampled_here,
+                "scores": rank_scores,
+            }
+        )
 
     final_scores = defaultdict(lambda: -np.inf if highest else np.inf)
     for window in per_window:
@@ -400,6 +408,7 @@ def plot_sample_ranking(
     prune_callouts=True,
     prune_threshold=0.99,
     save_callout_graphs=True,
+    sample_marker_mode="interval",
 ):
     """Plot a bump chart of top final states over sampled training windows."""
     if len(sampled_states) != len(metric_values):
@@ -422,6 +431,9 @@ def plot_sample_ranking(
     fig_height = max(5.2, 0.24 * max(10, len(tracked_keys)))
     fig, ax = plt.subplots(figsize=(13.0, fig_height))
     first_seen = _first_iteration_by_state(sampled_states, sort_edges=sort_edges)
+    marker_mode = str(sample_marker_mode).lower().replace("-", "_")
+    if marker_mode not in {"interval", "first"}:
+        raise ValueError("sample_marker_mode must be 'interval' or 'first'.")
     first_values = np.asarray([first_seen.get(key, 1) for key in tracked_keys], dtype=float)
     color_min = float(np.min(first_values)) if first_values.size else 1.0
     color_max = float(np.max(first_values)) if first_values.size else float(n_samples)
@@ -457,9 +469,15 @@ def plot_sample_ranking(
                 continue
             xs.append(center)
             ys.append(rank)
-            if key in window["sampled"]:
+            if marker_mode == "interval" and key in window["sampled"]:
                 sampled_x.append(center)
                 sampled_y.append(rank)
+            elif marker_mode == "first":
+                first_iteration = first_seen.get(key)
+                if first_iteration is not None and key in window["sampled"]:
+                    if window["start"] < first_iteration <= window["end"]:
+                        sampled_x.append(first_iteration)
+                        sampled_y.append(rank)
         color = palette(norm(first_seen.get(key, 1)))
         ax.plot(xs, ys, color=color, linewidth=1.8, alpha=0.9)
         if sampled_x:

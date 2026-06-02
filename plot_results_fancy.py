@@ -25,6 +25,7 @@ CONFIG = {
     "ranking_top_n": 20,
     "ranking_windows": 60,
     "ranking_mode": "highest_over_all",
+    "ranking_sample_marker_mode": "first",  # interval or first
     "ranking_callout_graphs": 4,
     "callout_prune": True,
     "callout_prune_threshold": 0.99,
@@ -298,6 +299,7 @@ def main():
             top_n=int(config["ranking_top_n"]),
             num_windows=int(config["ranking_windows"]),
             ranking_mode=str(config["ranking_mode"]),
+            sample_marker_mode=str(config["ranking_sample_marker_mode"]),
             callout_states=pruned_states,
             total_nodes=total_nodes,
             n_ancilla=int(config["n_a"]),

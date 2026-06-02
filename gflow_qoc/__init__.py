@@ -13,3 +13,4 @@ from .utils import *
 from .training import *
 from .gflow_utils import *
 from .result_analysis import *
+from .fancy_plots import *

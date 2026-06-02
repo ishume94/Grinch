@@ -23,7 +23,7 @@ CONFIG = {
     "target_expr": "1|0000> + 1|1111>",
     "metric_source": "rewards",  # rewards, fidelity, or auto
     "ranking_top_n": 20,
-    "ranking_windows": 60,
+    "ranking_windows": 200,
     "ranking_mode": "highest_over_all",
     "ranking_sample_marker_mode": "first",  # interval or first
     "ranking_callout_graphs": 4,
@@ -31,7 +31,7 @@ CONFIG = {
     "callout_prune_threshold": 0.99,
     "save_callout_graphs": True,
     "projection_method": "pca",  # pca or identity
-    "projection_gridsize": 24,
+    "projection_gridsize": 64,
     "projection_labels": 0,
     "projection_show_samples": False,
     "make_scatter": False,

@@ -25,14 +25,15 @@ CONFIG = {
     "ranking_top_n": 20,
     "ranking_windows": 60,
     "ranking_mode": "highest_over_all",
-    "ranking_callout_graphs": 3,
+    "ranking_callout_graphs": 4,
     "callout_prune": True,
     "callout_prune_threshold": 0.99,
     "save_callout_graphs": True,
     "projection_method": "pca",  # pca or identity
     "projection_gridsize": 24,
     "projection_labels": 0,
-    "make_scatter": True,
+    "projection_show_samples": False,
+    "make_scatter": False,
 }
 
 
@@ -324,6 +325,7 @@ def main():
             gridsize=int(config["projection_gridsize"]),
             top_label_count=int(config["projection_labels"]),
             metric_label=plot_metric_label,
+            show_samples=bool(config["projection_show_samples"]),
         )
     )
 
@@ -341,6 +343,7 @@ def main():
                 gridsize=int(config["projection_gridsize"]),
                 top_label_count=int(config["projection_labels"]),
                 metric_label=plot_metric_label,
+                show_samples=True,
             )
         )
 

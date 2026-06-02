@@ -572,6 +572,7 @@ def plot_state_projection(
     top_label_count=0,
     cmap="viridis",
     metric_label="Metric",
+    show_samples=False,
 ):
     """Project unique final states into 2D and render a scatter or hexbin view."""
     if not sampled_states:
@@ -629,7 +630,8 @@ def plot_state_projection(
             )
             cbar = fig.colorbar(hb, ax=ax, pad=0.01)
             cbar.set_label(f"Mean {color_label}")
-        ax.scatter(x, y, s=10, color="black", alpha=0.18, linewidths=0)
+        if show_samples:
+            ax.scatter(x, y, s=10, color="black", alpha=0.18, linewidths=0)
     elif style == "scatter":
         norm = None
         if np.any(finite):

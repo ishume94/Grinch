@@ -122,7 +122,7 @@ For states that require ancilla photons, explicitly include the ancilla in the t
 
 - `n_a` controls how many ancilla nodes are added.
 - `c_a` controls how many ancilla colors are allowed for ancilla edges (`0, 1, ..., c_a-1`).
-- If `c_a` is not provided, behavior is unchanged from before: ancilla color is fixed to `0` only.
+- If `c_a` is not provided, ancilla color is fixed to `0` only.
 - `c_a` must satisfy `1 <= c_a <= num_colors` when `n_a > 0`.
 
 ## Running

@@ -139,7 +139,7 @@ def reward_fidelity(target_state, state, num_colors, pruning, alpha=0.1):
     # Optimize
     if pruning:
         result = minimize(
-            fidelity_l1_objective,
+            fidelity_objective,#fidelity_l1_objective,
             init_weights,
             args=(state, target_state, num_colors, alpha),
             method='L-BFGS-B',

@@ -112,7 +112,7 @@ def compute_fidelity(weights, state, target_state, num_colors):
     overlap = np.vdot(target_state, normalized)
     return float(np.abs(overlap)**2)
 
-def fidelity_objective(weights, state, target_state, num_colors):
+def fidelity_objective(weights, state, target_state, num_colors, alpha=0):
     try:
         fidelity = compute_fidelity(weights, state, target_state, num_colors)
         return -fidelity # we minimize, so negate

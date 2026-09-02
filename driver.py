@@ -9,6 +9,7 @@ import pickle
 num_nodes, num_colors = 4, 2 #4, 2 for (4,2)-GHZ. 6, 3 for (6,3)-GHZ. 3, 2 for (3,2)-GHZ
 # If the number of optical paths is odd, you will require an ancilla qubit. 
 args = parse_args(sys.argv) # Pass CLI args as key=value, e.g. n_a=1 c_a=2
+q_gate = "--q-gate" in sys.argv[1:]
 n_a = int(args.get("n_a", "0"))  # default: 0 ancillas
 c_a = args.get("c_a")  # Optional: number of ancilla colors (0..c_a-1)
 FEATURE_KEYS, num_nodes = build_feature_keys(
@@ -18,6 +19,17 @@ FEATURE_KEYS, num_nodes = build_feature_keys(
     c_a=c_a,
     verbose=True,
 )
+if q_gate:
+    num_gate_nodes = num_nodes - n_a
+    if num_gate_nodes % 2 != 0:
+        raise ValueError("Quantum-gate mode requires an even number of non-ancilla nodes.")
+    num_input_nodes = num_gate_nodes // 2
+    FEATURE_KEYS = [
+        key for key in FEATURE_KEYS
+        if not (key[0][0] < num_input_nodes and key[0][1] < num_input_nodes)
+    ]
+    print(f"Quantum-gate mode: input nodes are 0 through {num_input_nodes - 1}")
+    print("Size of feature keys w/q-gate restriction = {}".format(len(FEATURE_KEYS)))
 # Fixed hyperparameters.
 pruning = True
 n_hid_units = 128 #512 for MLP, 128 for GIN/GAT/Transformer
@@ -35,6 +47,7 @@ seed = 666
 max_edges = 4
 #target_expr = "1|0000⟩ + 1|1110⟩" #(3,2)-GHZ with ancilla |\psi⟩ = 1/sqrt(2) (|000⟩ + |111⟩) tensor |0⟩
 target_expr = "1|0000⟩ + 1|1111⟩" #(4,2)-GHZ
+#target_expr = "1|000000⟩ + 1|010100⟩ + 1|101100⟩ + 1|111000⟩" # CNOT gate with two |0⟩ ancillas; run with --q-gate n_a=2
 #target_expr = "1|000000⟩ + 1|111111⟩+ 1|222222⟩" #(6,3)-GHZ
 #target_expr = "1|0120⟩ + 1|0210⟩ + 1|1020⟩ + 1|1200⟩ + 1|2010⟩ + 1|2100⟩" # |D(3,(1,1,1))⟩tensor|0⟩ 
 

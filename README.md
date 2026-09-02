@@ -103,6 +103,32 @@ You can define target states directly in `driver.py`. All states are properly no
 - **(6,3)-GHZ**
   - Target: `1|000000⟩ + 1|111111⟩ + 1|222222⟩`
 
+### Quantum-gate targets (`--q-gate`)
+
+Run `driver.py` with `--q-gate` to synthesize a non-local photonic quantum gate. In this mode, `num_nodes` is the number of non-ancilla nodes and must be even. The first `num_nodes / 2` nodes encode the input, the next `num_nodes / 2` nodes encode the output, and any nodes added with `n_a` are ancillas appended after the input and output nodes.
+
+The target expression encodes the desired gate action using
+
+$$
+|\mathrm{in}\rangle \otimes |\mathrm{out}\rangle
+= |\mathrm{in},\mathrm{out}\rangle.
+$$
+
+For example, a CNOT gate acts as
+
+$$
+|00\rangle\to|00\rangle,\quad
+|01\rangle\to|01\rangle,\quad
+|10\rangle\to|11\rangle,\quad
+|11\rangle\to|10\rangle,
+$$
+
+To implement this gate, two ancilla nodes in state $|0\rangle$ are required. It is therefore encoded by
+
+`1|000000⟩ + 1|010100⟩ + 1|101100⟩ + 1|111000⟩`.
+
+Here, the first two entries in each ket are the input, the next two are the output, and the final two are the ancillas in $|00\rangle$. As with state targets, the expression is normalized internally. Run this CNOT example with `python driver.py --q-gate n_a=2`. In q-gate mode, `FEATURE_KEYS` excludes every edge whose two endpoints are input nodes. Circuit generation, optimization, pruning, and plotting otherwise remain unchanged.
+
 ### Targets requiring ancilla photons
 The default ancilla state is $|0\rangle$. With multiple ancilla photons, the full state is interpreted as:
 
@@ -136,6 +162,12 @@ python driver.py n_a=1 > out.log
 
 # With ancilla photons and variable ancilla colors (here: colors 0 and 1)
 python driver.py n_a=1 c_a=2 > out.log
+
+# Quantum-gate mode
+python driver.py --q-gate > out.log
+
+# CNOT example with two appended |0⟩ ancilla nodes
+python driver.py --q-gate n_a=2 > out.log
 ```
 ### Available models (GFlowNets with Trajectory Balance)
 

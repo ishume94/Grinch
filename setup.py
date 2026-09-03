@@ -4,7 +4,16 @@ setup(
     name='gflow_qoc',
     version='0.1.0',
     packages=find_packages(),
-    install_requires=[],  # list dependencies here, e.g., ['numpy']
+    install_requires=[
+        'matplotlib',
+        'networkx',
+        'numpy',
+        'scipy',
+        'sympy',
+        'torch',
+        'torch-geometric',
+        'tqdm',
+    ],
     author='Isaac Huidobro',
     author_email='huidobri@mcmaster.ca',
     description='Discovery of quantum optical circuits using GFlowNets',

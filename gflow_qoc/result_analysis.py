@@ -205,7 +205,7 @@ def plot_rewards(rewards):
     plt.plot(x, best, linewidth=1.5)
     plt.xlabel("Iteration")
     plt.ylabel("Best reward")
-    plt.ylim(0, 1)
+    plt.ylim(0, 1.05)
     plt.savefig("rewards_progress.svg", format="svg", dpi=600, bbox_inches="tight")
     plt.savefig("rewards_progress.png", format="png", dpi=600, bbox_inches="tight")
 

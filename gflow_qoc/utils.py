@@ -74,6 +74,32 @@ def matching_to_state(matching, state, weights, num_nodes):
 def basis_index(color_tuple, num_colors):
     return int("".join(str(c) for c in color_tuple), num_colors)
 
+
+def _infer_num_nodes_from_state_dimension(state_dimension, num_colors):
+    """Infer ``num_nodes`` from an exact ``num_colors**num_nodes`` dimension."""
+    state_dimension = int(state_dimension)
+    num_colors = int(num_colors)
+
+    if state_dimension <= 0:
+        raise ValueError("State dimension must be positive.")
+    if num_colors < 2:
+        raise ValueError("num_colors must be at least 2 to infer num_nodes.")
+
+    num_nodes = 0
+    dimension = 1
+    while dimension < state_dimension:
+        dimension *= num_colors
+        num_nodes += 1
+
+    if dimension != state_dimension:
+        raise ValueError(
+            f"target_state length {state_dimension} is not an exact power of "
+            f"num_colors={num_colors}."
+        )
+
+    return num_nodes
+
+
 def build_normalized_state(state, weights, num_colors):
     matchings = all_perfect_matchings(state)
     n_nodes = max(max(u, v) for ((u, v), _) in state) + 1
@@ -135,6 +161,14 @@ def reward_fidelity(target_state, state, num_colors, pruning, alpha=0.1):
     """This reward function computes the optimal weights and fidelities. Returns squared of fidelity if the state is valid."""
     # Initial weights
     init_weights = np.random.uniform(-1, 1, len(state))
+
+    if target_state.ndim != 1:
+        raise ValueError("target_state must be a one-dimensional state vector.")
+
+    target_num_nodes = _infer_num_nodes_from_state_dimension(target_state.size, num_colors)
+    state_nodes = {node for ((u, v), _) in state for node in (u, v)}
+    if state_nodes != set(range(target_num_nodes)):
+        return 0.0, init_weights
 
     # Optimize
     if pruning:
@@ -312,7 +346,7 @@ def pm_counts_by_basis_index(state, num_colors):
     return counts, n_nodes
 
 
-def satisfies_clauses(state, target_support, num_colors):
+def satisfies_clauses(state, target_support, num_colors, num_nodes=None):
     """
     Implements the two logic clauses via PM enumeration:
 
@@ -322,6 +356,11 @@ def satisfies_clauses(state, target_support, num_colors):
     Returns:
         bool
     """
+    if num_nodes is not None:
+        state_nodes = {node for ((u, v), _) in state for node in (u, v)}
+        if state_nodes != set(range(num_nodes)):
+            return False
+
     counts, _ = pm_counts_by_basis_index(state, num_colors)
 
     # S clause
@@ -376,21 +415,16 @@ def prune_state_by_logic(
     if n0 == 0:
         return [], (np.asarray([]) if weights0 is not None else None), np.zeros(0, dtype=bool)
 
-    # infer num_nodes from state, and sanity-check target_state length
-    n_nodes = max(max(u, v) for ((u, v), _) in state0) + 1
-    dim = num_colors ** n_nodes
     target_state = np.asarray(target_state)
-    if target_state.size != dim:
-        raise ValueError(
-            f"target_state length {target_state.size} != num_colors**num_nodes {dim} "
-            f"(num_colors={num_colors}, num_nodes={n_nodes})"
-        )
+    if target_state.ndim != 1:
+        raise ValueError("target_state must be a one-dimensional state vector.")
+    target_num_nodes = _infer_num_nodes_from_state_dimension(target_state.size, num_colors)
 
     target_support = target_support_from_vector(target_state, tol=support_tol)
 
     # If the current state already violates clauses, pruning can't fix that reliably.
     # Return original to avoid surprises.
-    if not satisfies_clauses(state0, target_support, num_colors):
+    if not satisfies_clauses(state0, target_support, num_colors, num_nodes=target_num_nodes):
         keep = np.ones(n0, dtype=bool)
         return state0, (weights0.copy() if weights0 is not None else None), keep
 
@@ -424,7 +458,7 @@ def prune_state_by_logic(
             cand_state = cur_state[:k] + cur_state[k+1:]
 
             # If removing makes it impossible to have any PMs at all, clauses will fail anyway.
-            if not satisfies_clauses(cand_state, target_support, num_colors):
+            if not satisfies_clauses(cand_state, target_support, num_colors, num_nodes=target_num_nodes):
                 continue
 
             # Accept removal

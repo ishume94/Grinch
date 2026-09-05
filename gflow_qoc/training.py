@@ -66,6 +66,11 @@ def TB_train(
     beta_warmup_steps: int = 1000,
 ):
     set_seed(seed)
+    matching_logic = prepare_matching_logic(
+        target_expr, FEATURE_KEYS, target_state=target_state, num_colors=num_colors,
+    )
+    if max_edges < 1 or not matching_logic.forward([], max_edges=max_edges)[0].any():
+        raise ValueError("No target-supporting trajectory fits the allowed edges and max_edges.")
 
     if save_snapshot_history and snapshot_every <= 0:
         raise ValueError("snapshot_every must be > 0 when save_snapshot_history=True.")
@@ -104,6 +109,9 @@ def TB_train(
         model_kind = model_class
         model_kwargs = {}
 
+    # Save the action rules with the model so probability plots use the same policy.
+    model_kwargs.update(max_edges=int(max_edges), matching_logic=True)
+
     if save_snapshot_history:
         os.makedirs(snapshot_dir, exist_ok=True)
         _save_tb_snapshot(
@@ -130,14 +138,18 @@ def TB_train(
             beta_warmup_steps=beta_warmup_steps,
         )
         state = []  # Each episode starts with an empty state.
+        reward, opt_weights = 0.0, None
         P_F_s, P_B_s = model(state_to_tensor(state,FEATURE_KEYS), FEATURE_KEYS)  # Forward and backward policy
         total_log_P_F, total_log_P_B = 0, 0
 
-        for t in range(max_edges):  # All trajectories are length 2 (not including s0).
-            mask = calculate_forward_mask_from_state(state,target_expr, FEATURE_KEYS)#calculate_forward_mask_from_state(state)
-            P_F_s = torch.where(mask, P_F_s, -1000)  # Removes invalid forward actions.
-            # Here P_F is logits, so we use Categorical to compute a softmax.
-            P_F_s = torch.where(torch.isnan(P_F_s), torch.full_like(P_F_s, -100), P_F_s)
+        for t in range(max_edges):
+            mask, progress = matching_logic.forward(state, max_edges=max_edges)
+            if not mask.any():
+                # Exhaustion is terminal; a supported target can finish below the budget.
+                if matching_logic.supports_target(state):
+                    reward, opt_weights = reward_fidelity(target_state, state, num_colors, pruning)
+                break
+            P_F_s = masked_policy_logits(P_F_s, mask, progress)
             categorical = Categorical(logits=P_F_s)
             action = categorical.sample()
             new_state = state + [FEATURE_KEYS[action]] # "Go" to next state.
@@ -151,8 +163,7 @@ def TB_train(
             P_F_s, P_B_s = model(state_to_tensor(new_state,FEATURE_KEYS), FEATURE_KEYS)
             #print(new_state)
             mask = calculate_backward_mask_from_state(new_state, FEATURE_KEYS)
-            P_B_s = torch.where(mask, P_B_s, -1000)  # Removes invalid backward actions.
-            P_B_s = torch.where(torch.isnan(P_B_s), torch.full_like(P_B_s, -100), P_B_s)
+            P_B_s = masked_policy_logits(P_B_s, mask)
             total_log_P_B += Categorical(logits=P_B_s).log_prob(action)
 
             state = new_state  # Continue iterating.
@@ -171,12 +182,11 @@ def TB_train(
         # update episode, take a gradient step.
         sampled_states.append(state)
         rewards.append(reward)
-        # Prune states with high fidelity :)
-        if pruning and reward is not None and reward >= 0.99 and opt_weights is not None:
-            pruned_state, pruned_weights, keep_mask = prune_state_by_weight(
-                state, opt_weights,
-                weight_eps=1e-2,
-                keep_at_least=4
+        # Prune using physical fidelity thresholds; the reward is fidelity squared.
+        if pruning and reward is not None and reward >= 0.99**2 and opt_weights is not None:
+            pruned_state, pruned_weights, keep_mask = prune_state_by_logic(
+                state, target_state, num_colors, weights=opt_weights,
+                fidelity_threshold=0.99,
             )
 
             # recompute fidelity of the pruned state using the pruned weights
@@ -244,6 +254,11 @@ def GIN_TB_train(
     beta_warmup_steps: int = 1000,
 ):
     set_seed(seed)
+    matching_logic = prepare_matching_logic(
+        target_expr, FEATURE_KEYS, target_state=target_state, num_colors=num_colors,
+    )
+    if max_edges < 1 or not matching_logic.forward([], max_edges=max_edges)[0].any():
+        raise ValueError("No target-supporting trajectory fits the allowed edges and max_edges.")
 
     if save_snapshot_history and snapshot_every <= 0:
         raise ValueError("snapshot_every must be > 0 when save_snapshot_history=True.")
@@ -257,6 +272,9 @@ def GIN_TB_train(
         "node_feat_dim": num_nodes,
         "hidden_dim": n_hid_units,
     }
+
+    # Save the action rules with the model so probability plots use the same policy.
+    model_kwargs.update(max_edges=int(max_edges), matching_logic=True)
 
     if save_snapshot_history:
         os.makedirs(snapshot_dir, exist_ok=True)
@@ -284,15 +302,19 @@ def GIN_TB_train(
             beta_warmup_steps=beta_warmup_steps,
         )
         state = []  # Each episode starts with an empty state.
+        reward, opt_weights = 0.0, None
         graph_data = state_to_data(state, num_nodes, num_colors)
         P_F_s, P_B_s = model(graph_data)
         total_log_P_F, total_log_P_B = 0, 0
 
-        for t in range(max_edges):  # All trajectories are length 2 (not including s0).
-            mask = calculate_forward_mask_from_state(state,target_expr, FEATURE_KEYS)#calculate_forward_mask_from_state(state)
-            P_F_s = torch.where(mask, P_F_s, -1000)  # Removes invalid forward actions.
-            # Here P_F is logits, so we use Categorical to compute a softmax.
-            P_F_s = torch.where(torch.isnan(P_F_s), torch.full_like(P_F_s, -100), P_F_s)
+        for t in range(max_edges):
+            mask, progress = matching_logic.forward(state, max_edges=max_edges)
+            if not mask.any():
+                # Exhaustion is terminal; a supported target can finish below the budget.
+                if matching_logic.supports_target(state):
+                    reward, opt_weights = reward_fidelity(target_state, state, num_colors, pruning)
+                break
+            P_F_s = masked_policy_logits(P_F_s, mask, progress)
             categorical = Categorical(logits=P_F_s)
             action = categorical.sample()
             new_state = state + [FEATURE_KEYS[action]] # "Go" to next state.
@@ -307,8 +329,7 @@ def GIN_TB_train(
             P_F_s, P_B_s = model(graph_data)
             #print(new_state)
             mask = calculate_backward_mask_from_state(new_state, FEATURE_KEYS)
-            P_B_s = torch.where(mask, P_B_s, -1000)  # Removes invalid backward actions.
-            P_B_s = torch.where(torch.isnan(P_B_s), torch.full_like(P_B_s, -100), P_B_s)
+            P_B_s = masked_policy_logits(P_B_s, mask)
             total_log_P_B += Categorical(logits=P_B_s).log_prob(action)
 
             state = new_state  # Continue iterating.
@@ -327,12 +348,11 @@ def GIN_TB_train(
         # update episode, take a gradient step.
         sampled_states.append(state)
         rewards.append(reward)
-        # Prune states with high fidelity :)
-        if pruning and reward is not None and reward >= 0.99 and opt_weights is not None:
-            pruned_state, pruned_weights, keep_mask = prune_state_by_weight(
-                state, opt_weights,
-                weight_eps=1e-2,
-                keep_at_least=4
+        # Prune using physical fidelity thresholds; the reward is fidelity squared.
+        if pruning and reward is not None and reward >= 0.99**2 and opt_weights is not None:
+            pruned_state, pruned_weights, keep_mask = prune_state_by_logic(
+                state, target_state, num_colors, weights=opt_weights,
+                fidelity_threshold=0.99,
             )
 
             # recompute fidelity of the pruned state using the pruned weights
@@ -402,6 +422,11 @@ def GINE_TB_train(
     beta_warmup_steps: int = 1000,
 ):
     set_seed(seed)
+    matching_logic = prepare_matching_logic(
+        target_expr, FEATURE_KEYS, target_state=target_state, num_colors=num_colors,
+    )
+    if max_edges < 1 or not matching_logic.forward([], max_edges=max_edges)[0].any():
+        raise ValueError("No target-supporting trajectory fits the allowed edges and max_edges.")
 
     if save_snapshot_history and snapshot_every <= 0:
         raise ValueError("snapshot_every must be > 0 when save_snapshot_history=True.")
@@ -416,6 +441,9 @@ def GINE_TB_train(
         "edge_feat_dim": edge_feat_dim,
         "hidden_dim": n_hid_units,
     }
+
+    # Save the action rules with the model so probability plots use the same policy.
+    model_kwargs.update(max_edges=int(max_edges), matching_logic=True)
 
     if save_snapshot_history:
         os.makedirs(snapshot_dir, exist_ok=True)
@@ -443,15 +471,19 @@ def GINE_TB_train(
             beta_warmup_steps=beta_warmup_steps,
         )
         state = []  # Each episode starts with an empty state.
+        reward, opt_weights = 0.0, None
         graph_data = state_to_data(state, num_nodes, num_colors)
         P_F_s, P_B_s = model(graph_data)
         total_log_P_F, total_log_P_B = 0, 0
 
-        for t in range(max_edges):  # All trajectories are length 2 (not including s0).
-            mask = calculate_forward_mask_from_state(state,target_expr, FEATURE_KEYS)#calculate_forward_mask_from_state(state)
-            P_F_s = torch.where(mask, P_F_s, -1000)  # Removes invalid forward actions.
-            # Here P_F is logits, so we use Categorical to compute a softmax.
-            P_F_s = torch.where(torch.isnan(P_F_s), torch.full_like(P_F_s, -100), P_F_s)
+        for t in range(max_edges):
+            mask, progress = matching_logic.forward(state, max_edges=max_edges)
+            if not mask.any():
+                # Exhaustion is terminal; a supported target can finish below the budget.
+                if matching_logic.supports_target(state):
+                    reward, opt_weights = reward_fidelity(target_state, state, num_colors, pruning)
+                break
+            P_F_s = masked_policy_logits(P_F_s, mask, progress)
             categorical = Categorical(logits=P_F_s)
             action = categorical.sample()
             new_state = state + [FEATURE_KEYS[action]] # "Go" to next state.
@@ -466,8 +498,7 @@ def GINE_TB_train(
             P_F_s, P_B_s = model(graph_data)
             #print(new_state)
             mask = calculate_backward_mask_from_state(new_state, FEATURE_KEYS)
-            P_B_s = torch.where(mask, P_B_s, -1000)  # Removes invalid backward actions.
-            P_B_s = torch.where(torch.isnan(P_B_s), torch.full_like(P_B_s, -100), P_B_s)
+            P_B_s = masked_policy_logits(P_B_s, mask)
             total_log_P_B += Categorical(logits=P_B_s).log_prob(action)
 
             state = new_state  # Continue iterating.
@@ -486,12 +517,11 @@ def GINE_TB_train(
         # update episode, take a gradient step.
         sampled_states.append(state)
         rewards.append(reward)
-        # Prune states with high fidelity :)
-        if pruning and reward is not None and reward >= 0.99 and opt_weights is not None:
-            pruned_state, pruned_weights, keep_mask = prune_state_by_weight(
-                state, opt_weights,
-                weight_eps=1e-2,
-                keep_at_least=4
+        # Prune using physical fidelity thresholds; the reward is fidelity squared.
+        if pruning and reward is not None and reward >= 0.99**2 and opt_weights is not None:
+            pruned_state, pruned_weights, keep_mask = prune_state_by_logic(
+                state, target_state, num_colors, weights=opt_weights,
+                fidelity_threshold=0.99,
             )
 
             # recompute fidelity of the pruned state using the pruned weights
@@ -563,6 +593,11 @@ def GAT_TB_train(
     beta_warmup_steps: int = 1000,
 ):
     set_seed(seed)
+    matching_logic = prepare_matching_logic(
+        target_expr, FEATURE_KEYS, target_state=target_state, num_colors=num_colors,
+    )
+    if max_edges < 1 or not matching_logic.forward([], max_edges=max_edges)[0].any():
+        raise ValueError("No target-supporting trajectory fits the allowed edges and max_edges.")
 
     if save_snapshot_history and snapshot_every <= 0:
         raise ValueError("snapshot_every must be > 0 when save_snapshot_history=True.")
@@ -588,6 +623,9 @@ def GAT_TB_train(
         "dropout": dropout,
     }
 
+    # Save the action rules with the model so probability plots use the same policy.
+    model_kwargs.update(max_edges=int(max_edges), matching_logic=True)
+
     if save_snapshot_history:
         os.makedirs(snapshot_dir, exist_ok=True)
         _save_tb_snapshot(
@@ -612,6 +650,7 @@ def GAT_TB_train(
             beta_warmup_steps=beta_warmup_steps,
         )
         state = []
+        reward, opt_weights = 0.0, None
         graph_data = state_to_data(state, num_nodes, num_colors)
         P_F_s, P_B_s = model(graph_data)
 
@@ -619,9 +658,13 @@ def GAT_TB_train(
         total_log_P_B = 0.0
 
         for t in range(max_edges):
-            mask = calculate_forward_mask_from_state(state, target_expr, FEATURE_KEYS)
-            P_F_s = torch.where(mask, P_F_s, torch.tensor(-1000.0, device=P_F_s.device, dtype=P_F_s.dtype))
-            P_F_s = torch.where(torch.isnan(P_F_s), torch.full_like(P_F_s, -100.0), P_F_s)
+            mask, progress = matching_logic.forward(state, max_edges=max_edges)
+            if not mask.any():
+                # Exhaustion is terminal; a supported target can finish below the budget.
+                if matching_logic.supports_target(state):
+                    reward, opt_weights = reward_fidelity(target_state, state, num_colors, pruning)
+                break
+            P_F_s = masked_policy_logits(P_F_s, mask, progress)
 
             categorical = Categorical(logits=P_F_s)
             action = categorical.sample()
@@ -637,8 +680,7 @@ def GAT_TB_train(
             P_F_s, P_B_s = model(graph_data)
 
             bmask = calculate_backward_mask_from_state(new_state, FEATURE_KEYS)
-            P_B_s = torch.where(bmask, P_B_s, torch.tensor(-1000.0, device=P_B_s.device, dtype=P_B_s.dtype))
-            P_B_s = torch.where(torch.isnan(P_B_s), torch.full_like(P_B_s, -100.0), P_B_s)
+            P_B_s = masked_policy_logits(P_B_s, bmask)
             total_log_P_B = total_log_P_B + Categorical(logits=P_B_s).log_prob(action)
 
             state = new_state
@@ -653,12 +695,11 @@ def GAT_TB_train(
 
         sampled_states.append(state)
         rewards.append(reward)
-        # Prune states with high fidelity :)
-        if pruning and reward is not None and reward >= 0.99 and opt_weights is not None:
-            pruned_state, pruned_weights, keep_mask = prune_state_by_weight(
-                state, opt_weights,
-                weight_eps=1e-2,
-                keep_at_least=4
+        # Prune using physical fidelity thresholds; the reward is fidelity squared.
+        if pruning and reward is not None and reward >= 0.99**2 and opt_weights is not None:
+            pruned_state, pruned_weights, keep_mask = prune_state_by_logic(
+                state, target_state, num_colors, weights=opt_weights,
+                fidelity_threshold=0.99,
             )
 
             # recompute fidelity of the pruned state using the pruned weights
@@ -735,6 +776,11 @@ def Transformer_TB_train(
     beta_warmup_steps: int = 1000,
 ):
     set_seed(seed)
+    matching_logic = prepare_matching_logic(
+        target_expr, FEATURE_KEYS, target_state=target_state, num_colors=num_colors,
+    )
+    if max_edges < 1 or not matching_logic.forward([], max_edges=max_edges)[0].any():
+        raise ValueError("No target-supporting trajectory fits the allowed edges and max_edges.")
 
     if save_snapshot_history and snapshot_every <= 0:
         raise ValueError("snapshot_every must be > 0 when save_snapshot_history=True.")
@@ -764,6 +810,9 @@ def Transformer_TB_train(
     pruned_states = [] 
     minibatch_loss = 0.0
 
+    # Save the action rules with the model so probability plots use the same policy.
+    model_kwargs.update(max_edges=int(max_edges), matching_logic=True)
+
     if save_snapshot_history:
         os.makedirs(snapshot_dir, exist_ok=True)
         _save_tb_snapshot(
@@ -784,6 +833,7 @@ def Transformer_TB_train(
             beta_warmup_steps=beta_warmup_steps,
         )
         state = []
+        reward, opt_weights = 0.0, None
         graph_data = state_to_data(state, num_nodes, num_colors)
         P_F_s, P_B_s = model(graph_data)
 
@@ -791,9 +841,13 @@ def Transformer_TB_train(
         total_log_P_B = 0.0
 
         for t in range(max_edges):
-            mask = calculate_forward_mask_from_state(state, target_expr, FEATURE_KEYS)
-            P_F_s = torch.where(mask, P_F_s, torch.tensor(-1000.0, device=P_F_s.device, dtype=P_F_s.dtype))
-            P_F_s = torch.where(torch.isnan(P_F_s), torch.full_like(P_F_s, -100.0), P_F_s)
+            mask, progress = matching_logic.forward(state, max_edges=max_edges)
+            if not mask.any():
+                # Exhaustion is terminal; a supported target can finish below the budget.
+                if matching_logic.supports_target(state):
+                    reward, opt_weights = reward_fidelity(target_state, state, num_colors, pruning)
+                break
+            P_F_s = masked_policy_logits(P_F_s, mask, progress)
 
             categorical = Categorical(logits=P_F_s)
             action = categorical.sample()
@@ -809,8 +863,7 @@ def Transformer_TB_train(
             P_F_s, P_B_s = model(graph_data)
 
             bmask = calculate_backward_mask_from_state(new_state, FEATURE_KEYS)
-            P_B_s = torch.where(bmask, P_B_s, torch.tensor(-1000.0, device=P_B_s.device, dtype=P_B_s.dtype))
-            P_B_s = torch.where(torch.isnan(P_B_s), torch.full_like(P_B_s, -100.0), P_B_s)
+            P_B_s = masked_policy_logits(P_B_s, bmask)
             total_log_P_B = total_log_P_B + Categorical(logits=P_B_s).log_prob(action)
 
             state = new_state
@@ -825,8 +878,8 @@ def Transformer_TB_train(
 
         sampled_states.append(state)
         rewards.append(reward)
-        # Prune states with high fidelity :)
-        if pruning and reward is not None and reward >= 0.95 and opt_weights is not None:
+        # Prune using physical fidelity thresholds; the reward is fidelity squared.
+        if pruning and reward is not None and reward >= 0.95**2 and opt_weights is not None:
             # pruned_state, pruned_weights, keep_mask = prune_state_by_weight(
             #     state, opt_weights,
             #     weight_eps=1e-2,
@@ -837,7 +890,8 @@ def Transformer_TB_train(
                 target_state,
                 num_colors,
                 weights=opt_weights,
-            order="increasing_abs_weight",
+                order="increasing_abs_weight",
+                fidelity_threshold=0.95,
             )
 
             # recompute fidelity of the pruned state using the pruned weights

@@ -2,12 +2,14 @@ import numpy as np
 import torch
 import re
 import itertools
+from functools import lru_cache
 from sympy import sympify
 from torch_geometric.nn import GINConv, GINEConv
 from torch_geometric.nn import GATv2Conv, TransformerConv
 from torch_geometric.nn import global_mean_pool, global_add_pool
 from torch_geometric.data import Data
 from .utils import *
+from .utils import _infer_num_nodes_from_state_dimension
 import random
 import torch.nn as nn
 
@@ -490,47 +492,219 @@ def state_to_tensor(state, FEATURE_KEYS):
   """Encodes a state as a binary tensor (converted to float32)."""
   return torch.tensor(state_hash(state, FEATURE_KEYS)).float()
 
-###IMPROVED FORWARD MASK!!!!
+@lru_cache(maxsize=128)
+def _expression_support(target_expr):
+    """Collect nonzero coefficients, including cancellation of repeated kets."""
+    expression = ''.join(target_expr.split()).replace('⟩', '').replace('>', '')
+    amplitudes, position, num_nodes = {}, 0, None
+    for match in re.finditer(r'([^|]*)\|([0-9]+)', expression):
+        if match.start() != position:
+            raise ValueError("Invalid target expression.")
+        coefficient, basis = match.groups()
+        coefficient = {'': '1', '+': '1', '-': '-1'}.get(coefficient, coefficient)
+        value = sympify(coefficient)
+        if value.is_number is not True or value.is_finite is not True:
+            raise ValueError("Target coefficients must be finite numbers.")
+        if num_nodes is not None and len(basis) != num_nodes:
+            raise ValueError("All target basis strings must have the same length.")
+        num_nodes = len(basis)
+        amplitudes[basis] = amplitudes.get(basis, 0) + value
+        position = match.end()
+    if position != len(expression) or not amplitudes:
+        raise ValueError("Invalid target expression.")
+    support = tuple(tuple(map(int, basis)) for basis, value in amplitudes.items()
+                    if value.simplify() != 0)
+    if not support:
+        raise ValueError("Zero-norm target state.")
+    return num_nodes, support
+
+
 def extract_basis_strings(target_expr):
-    target_expr = target_expr.replace("⟩", "").replace(" ", "")
-    terms = re.findall(r'([^\+]+?\|[0-9]+)', target_expr)
-    basis_strings = []
-    for term in terms:
-        match = re.match(r'([^|]+)\|([0-9]+)', term)
-        if match:
-            _, bitstring = match.groups()
-            basis_strings.append(bitstring)
-    return basis_strings
+    return [''.join(map(str, basis)) for basis in _expression_support(target_expr)[1]]
 
-def calculate_forward_mask_from_state(state, target_expr, FEATURE_KEYS):
-    mask = np.ones(len(FEATURE_KEYS))  # 1 = allowed, 0 = masked
 
-    basis_strings = extract_basis_strings(target_expr)
+class _MatchingLogic:
+    """Target-specific perfect-matching bounds on a fixed action universe."""
 
-    for i, edge in enumerate(FEATURE_KEYS):
-        # Rule 1: already in state → disallowed
-        if edge in state:
-            mask[i] = 0
-            continue
+    def __init__(self, feature_keys, num_nodes, support):
+        self.feature_keys = feature_keys
+        self.num_nodes = num_nodes
+        self._indices = {edge: index for index, edge in enumerate(feature_keys)}
+        self._compatible = np.zeros(len(feature_keys), dtype=bool)
+        basis_incidence = np.zeros(len(feature_keys), dtype=int)
+        self._basis_pairs = []
+        for basis in support:
+            pairs = {}
+            for index, ((i, j), (ci, cj)) in enumerate(feature_keys):
+                if (0 <= i < num_nodes and 0 <= j < num_nodes and i != j
+                        and (ci, cj) == (basis[i], basis[j])):
+                    self._compatible[index] = True
+                    basis_incidence[index] += 1
+                    pairs.setdefault(tuple(sorted((i, j))), []).append(index)
+            self._basis_pairs.append(tuple(
+                (i, j, sum(1 << index for index in indices), tuple(indices))
+                for (i, j), indices in pairs.items()
+            ))
+        # Edges outside every full matching contribute no amplitude at all.
+        # Ignore colors here: an edge used only by unwanted-basis matchings may
+        # still help suppress an intruder and must remain available.
+        adjacency = [0] * num_nodes
+        for allowed, ((i, j), _) in zip(self._compatible, feature_keys):
+            if allowed:
+                adjacency[i] |= 1 << j
+                adjacency[j] |= 1 << i
 
-        (n1, n2), (c1, c2) = edge
-        compatible = False
-        for bitstring in basis_strings:
-            if len(bitstring) <= max(n1, n2):
-                continue  # Skip if bitstring is shorter than required node positions
-            if int(bitstring[n1]) == c1 and int(bitstring[n2]) == c2:
-                compatible = True
-                break
+        @lru_cache(maxsize=None)
+        def has_matching(vertices):
+            if not vertices:
+                return True
+            first = vertices & -vertices
+            remaining = vertices ^ first
+            partners = adjacency[first.bit_length() - 1] & remaining
+            while partners:
+                partner = partners & -partners
+                if has_matching(remaining ^ partner):
+                    return True
+                partners ^= partner
+            return False
 
-        if not compatible:
-            mask[i] = 0  # Rule 2: incompatible with target expression
+        full = (1 << num_nodes) - 1
+        for index, ((i, j), _) in enumerate(feature_keys):
+            if self._compatible[index]:
+                self._compatible[index] = has_matching(full ^ (1 << i) ^ (1 << j))
+        self._max_basis_per_edge = max(1, int(np.max(basis_incidence[self._compatible], initial=0)))
+        # Bound cache growth across episodes, without enumerating edge subsets.
+        self._completion_costs = lru_cache(maxsize=512)(self._completion_costs)
 
-    return torch.tensor(mask).bool()
+    def _completion_costs(self, state_bits):
+        full = (1 << self.num_nodes) - 1
+        impossible = self.num_nodes + 1
+        before = np.full(len(self._basis_pairs), impossible, dtype=int)
+        after = np.full((len(before), len(self.feature_keys)), impossible, dtype=int)
+        if self.num_nodes % 2:
+            return before, after
+        for row, pairs in enumerate(self._basis_pairs):
+            adjacency = [[] for _ in range(self.num_nodes)]
+            for i, j, action_bits, _ in pairs:
+                cost = 0 if action_bits & state_bits else 1
+                adjacency[i].append((1 << j, cost))
+                adjacency[j].append((1 << i, cost))
+
+            @lru_cache(maxsize=None)
+            def solve(vertices):
+                if not vertices:
+                    return 0
+                first = vertices & -vertices
+                remaining = vertices ^ first
+                best = impossible
+                for partner, cost in adjacency[first.bit_length() - 1]:
+                    if partner & remaining:
+                        best = min(best, cost + solve(remaining ^ partner))
+                        if best == 0:
+                            break
+                return best
+
+            before[row] = solve(full)
+            after[row].fill(before[row])
+            for i, j, _, indices in pairs:
+                # Force the proposed edge into a matching at zero additional cost.
+                # All other matching edges use the original state's 0/1 costs.
+                forced = solve(full ^ (1 << i) ^ (1 << j))
+                after[row, list(indices)] = min(before[row], forced)
+        return before, after
+
+    def supports_target(self, state):
+        """Whether the graph currently has a full matching for every target ket."""
+        present = {self._indices[(tuple(edge[0]), tuple(edge[1]))] for edge in state}
+        before, _ = self._completion_costs(sum(1 << index for index in present))
+        return bool(np.all(before == 0))
+
+    def forward(self, state, max_edges=None):
+        """Return an allowed-action mask and finite bonuses in [0, 1].
+
+        Each required basis must have a completion within the remaining edge
+        budget. A shared-budget bound also limits total missing-edge incidence
+        by the maximum number of target bases one edge can help. These bounds
+        are necessary, not a joint feasibility guarantee. Preparatory edges and
+        extra matchings remain allowed; no unwanted-basis exclusion is applied.
+        """
+        present = {self._indices[(tuple(edge[0]), tuple(edge[1]))] for edge in state}
+        state_bits = sum(1 << index for index in present)
+        before, after = self._completion_costs(state_bits)
+        mask = self._compatible.copy()
+        if present:
+            mask[list(present)] = False
+        # Even without a budget, every target basis must admit a full matching.
+        limit = self.num_nodes // 2 if max_edges is None else int(max_edges) - len(present) - 1
+        mask &= np.all(after <= limit, axis=0)
+        if max_edges is not None:
+            mask &= np.sum(after, axis=0) <= limit * self._max_basis_per_edge
+        unsupported = before > 0
+        progress = np.zeros(len(mask), dtype=np.float32)
+        if np.any(unsupported):
+            # A single edge reduces any one basis's minimum completion cost by at most one.
+            progress = (before[unsupported, None] - after[unsupported]).mean(axis=0).astype(np.float32)
+            progress[~mask] = 0
+        return torch.from_numpy(mask), torch.from_numpy(progress)
+
+
+@lru_cache(maxsize=32)
+def _cached_matching_logic(feature_keys, num_nodes, support):
+    return _MatchingLogic(feature_keys, num_nodes, support)
+
+
+def prepare_matching_logic(target_expr, FEATURE_KEYS, target_state=None, num_colors=None):
+    """Prepare reusable logic; a supplied target vector defines the true support."""
+    feature_keys = tuple((tuple(edge[0]), tuple(edge[1])) for edge in FEATURE_KEYS)
+    if target_state is None:
+        num_nodes, support = _expression_support(target_expr)
+        if num_colors is not None and any(max(basis) >= num_colors for basis in support):
+            raise ValueError("Target basis exceeds the supplied number of colors.")
+    else:
+        vector = np.asarray(target_state)
+        if vector.ndim != 1:
+            raise ValueError("Target state must be a one-dimensional vector.")
+        if not np.all(np.isfinite(vector)):
+            raise ValueError("Target amplitudes must be finite.")
+        if num_colors is None:
+            num_colors = max(2, 1 + max((max(edge[1]) for edge in feature_keys), default=0))
+        num_nodes = _infer_num_nodes_from_state_dimension(vector.size, num_colors)
+        support = []
+        for index in np.flatnonzero(vector):
+            digits = [0] * num_nodes
+            for node in range(num_nodes - 1, -1, -1):
+                index, digits[node] = divmod(int(index), int(num_colors))
+            support.append(tuple(digits))
+        if not support:
+            raise ValueError("Zero-norm target state.")
+        support = tuple(support)
+    return _cached_matching_logic(feature_keys, num_nodes, support)
+
+
+def calculate_forward_mask_from_state(state, target_expr, FEATURE_KEYS, max_edges=None,
+                                      target_state=None, num_colors=None):
+    """Backward-compatible mask-only entry point; prepare once for training loops."""
+    logic = prepare_matching_logic(target_expr, FEATURE_KEYS, target_state, num_colors)
+    return logic.forward(state, max_edges=max_edges)[0]
+
+
+def masked_policy_logits(logits, mask, progress=None):
+    """Apply finite policy bonuses and strict masks; callers handle empty masks."""
+    mask = torch.as_tensor(mask, dtype=torch.bool, device=logits.device)
+    result = torch.nan_to_num(logits, nan=-100.0, posinf=100.0, neginf=-100.0)
+    if progress is not None:
+        progress = torch.as_tensor(progress, dtype=logits.dtype, device=logits.device)
+        result = result + torch.nan_to_num(progress, nan=0.0, posinf=0.0, neginf=0.0)
+    return result.masked_fill(~mask, -torch.inf)
 
 def calculate_backward_mask_from_state(state, FEATURE_KEYS):
-    """Here, we mask backward actions to only select parent nodes."""
-    # This mask should be 1 for any action that could have led to the current state,
-    # otherwise it should be zero.
+    """Every present edge is a valid parent action for a forward-reachable state.
+
+    Removing one edge raises each minimum matching-completion cost by at most
+    one, and their sum by at most the maximum basis incidence of one edge,
+    while restoring one unit of budget. Thus every parent also satisfies the
+    forward bounds; the soft progress preference excludes no transitions.
+    """
     return torch.Tensor(
         [1 if feature in state else 0 for feature in FEATURE_KEYS]
     ).bool()

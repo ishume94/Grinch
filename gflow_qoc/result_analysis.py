@@ -593,13 +593,29 @@ def _forward_policy_logits(model, state, FEATURE_KEYS, num_nodes, num_colors):
     return logits
 
 
-def _forward_action_probs(model, state, FEATURE_KEYS, target_expr, num_nodes, num_colors):
+def _forward_action_probs(
+    model, state, FEATURE_KEYS, target_expr, num_nodes, num_colors,
+    max_edges=None, matching_logic=False,
+):
     logits = _forward_policy_logits(model, state, FEATURE_KEYS, num_nodes, num_colors)
-    mask = calculate_forward_mask_from_state(state, target_expr, FEATURE_KEYS).to(logits.device)
-    masked_logits = torch.where(mask, logits, torch.full_like(logits, -1e9))
-    probs = torch.softmax(masked_logits, dim=-1)
-    probs = torch.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
-    return probs.detach().cpu().numpy()
+    if matching_logic:
+        logic = prepare_matching_logic(target_expr, FEATURE_KEYS, num_colors=num_colors)
+        mask, progress = logic.forward(state, max_edges=max_edges)
+    else:
+        # Old checkpoints used only endpoint-colour compatibility and no progress bonus.
+        bases = extract_basis_strings(target_expr)
+        mask = torch.tensor([
+            edge not in state and any(
+                len(basis) > max(u, v) and int(basis[u]) == cu and int(basis[v]) == cv
+                for basis in bases
+            )
+            for edge in FEATURE_KEYS for (u, v), (cu, cv) in [edge]
+        ], dtype=torch.bool)
+        progress = None
+    if not mask.any():
+        return np.zeros(len(FEATURE_KEYS), dtype=float)
+    logits = masked_policy_logits(logits, mask, progress)
+    return torch.softmax(logits, dim=-1).detach().cpu().numpy()
 
 
 def _build_reduced_tb_structure(
@@ -774,6 +790,8 @@ def _compute_probs_for_structure(
     target_expr,
     num_nodes,
     num_colors,
+    max_edges=None,
+    matching_logic=False,
 ):
     action_to_idx = {action: i for i, action in enumerate(FEATURE_KEYS)}
     probs_cache = {}
@@ -788,6 +806,8 @@ def _compute_probs_for_structure(
                 target_expr,
                 num_nodes,
                 num_colors,
+                max_edges=max_edges,
+                matching_logic=matching_logic,
             )
         return probs_cache[key]
 
@@ -823,6 +843,8 @@ def _compute_trajectory_probabilities_for_states(
     target_expr,
     num_nodes,
     num_colors,
+    max_edges=None,
+    matching_logic=False,
 ):
     action_to_idx = {action: i for i, action in enumerate(FEATURE_KEYS)}
     probs_cache = {}
@@ -837,6 +859,8 @@ def _compute_trajectory_probabilities_for_states(
                 target_expr,
                 num_nodes,
                 num_colors,
+                max_edges=max_edges,
+                matching_logic=matching_logic,
             )
         return probs_cache[key]
 
@@ -1224,6 +1248,8 @@ def plot_tb_state_space_dynamics(
             target_expr=target_expr,
             num_nodes=num_nodes,
             num_colors=num_colors,
+            max_edges=final_checkpoint.get("model_kwargs", {}).get("max_edges"),
+            matching_logic=final_checkpoint.get("model_kwargs", {}).get("matching_logic", False),
         )
 
     selected_records = select_tb_states_for_visualization(
@@ -1257,6 +1283,8 @@ def plot_tb_state_space_dynamics(
             target_expr=target_expr,
             num_nodes=num_nodes,
             num_colors=num_colors,
+            max_edges=checkpoint.get("model_kwargs", {}).get("max_edges"),
+            matching_logic=checkpoint.get("model_kwargs", {}).get("matching_logic", False),
         )
         return {
             "episode": episode,

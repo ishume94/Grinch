@@ -182,8 +182,10 @@ def reward_fidelity(target_state, state, num_colors, pruning, alpha=0.1):
         )
         # Optimized weights
         opt_weights = np.asarray(result.x)
-        l1_term = alpha*np.sum(np.abs(opt_weights))
-        opt_fidelity = l1_term-result.fun
+        # Restore these two lines only together with fidelity_l1_objective above.
+        # l1_term = alpha*np.sum(np.abs(opt_weights))
+        # opt_fidelity = l1_term-result.fun
+        opt_fidelity = -result.fun
     else:
         result = minimize(
             fidelity_objective,
@@ -264,7 +266,7 @@ def parse_dirac_expression(expr, num_nodes, num_colors ):
             raise ValueError(f"Invalid term: {term}")
         coef_str, basis = match.groups()
         coef_val = complex(sympify(coef_str).evalf())
-        amplitudes[basis] = coef_val
+        amplitudes[basis] = amplitudes.get(basis, 0) + coef_val
     dim = num_colors ** num_nodes
     vec = np.zeros(dim, dtype=complex)
 
@@ -348,10 +350,13 @@ def pm_counts_by_basis_index(state, num_colors):
 
 def satisfies_clauses(state, target_support, num_colors, num_nodes=None):
     """
-    Implements the two logic clauses via PM enumeration:
+    Check target support via perfect-matching enumeration:
 
       S: For every idx in target_support, there exists >= 1 perfect matching producing idx.
-      C: For any idx not in target_support, it is forbidden to have exactly 1 PM producing idx. This Clause doesn't work.
+
+    The unwanted-basis clause C remains disabled: even a single unwanted
+    matching can have a sufficiently small amplitude after weight optimization.
+    Support is necessary, but does not by itself guarantee target fidelity.
 
     Returns:
         bool
@@ -375,6 +380,38 @@ def satisfies_clauses(state, target_support, num_colors, num_nodes=None):
 
     return True
 
+
+def _pruning_matching_data(state, num_colors, num_nodes):
+    """Compile matching edge indices and outcomes once for a fixed node universe."""
+    incident = [[] for _ in range(num_nodes)]
+    for index, ((u, v), _) in enumerate(state):
+        if u != v:
+            incident[u].append(index)
+            incident[v].append(index)
+
+    matching_edges = []
+    matching_basis = []
+    colors = [-1] * num_nodes
+
+    def visit(unmatched, chosen):
+        if not unmatched:
+            matching_edges.append(tuple(chosen))
+            matching_basis.append(basis_index(tuple(colors), num_colors))
+            return
+        node = min(unmatched)
+        for index in incident[node]:
+            (u, v), (cu, cv) = state[index]
+            if u in unmatched and v in unmatched:
+                colors[u], colors[v] = cu, cv
+                visit(unmatched.difference((u, v)), chosen + [index])
+
+    if num_nodes > 0 and num_nodes % 2 == 0:
+        visit(set(range(num_nodes)), [])
+    return (
+        np.asarray(matching_edges, dtype=int).reshape(-1, max(1, num_nodes // 2)),
+        np.asarray(matching_basis, dtype=int),
+    )
+
 def prune_state_by_logic(
     state,
     target_state,
@@ -383,104 +420,167 @@ def prune_state_by_logic(
     order="increasing_abs_weight",
     support_tol=1e-12,
     max_passes=10,
+    fidelity_threshold=0.95,
+    reoptimize=True,
 ):
     """
-    Greedily remove edges if the remaining graph still satisfies Logical clauses (S & C).
+    Remove edges while preserving target support and, with weights, fidelity.
+
+    Repeated copies of the same colored edge are invalid repeated actions, not
+    parallel sources. Keep their first occurrence and its weight before pruning,
+    including when the canonical graph fails the initial support/fidelity check.
+    The unwanted-basis clause stays disabled; the target-support check already
+    protects edges needed by a target matching even if they also create intruders.
 
     Args:
         state: list of edges like [((u,v),(cu,cv)), ...]
-        target_state: complex vector of length num_colors**num_nodes
+        target_state: normalized complex vector of length num_colors**num_nodes
         num_colors: int
-        weights: optional np array aligned with state (used only to decide removal order)
+        weights: optional np array aligned with state. If omitted, retain legacy
+                 support-only pruning, which does not guarantee target fidelity.
         order:
             - "increasing_abs_weight" (default): try remove smallest-|w| edges first
             - "original": try in original order
         support_tol: threshold for target support extraction
         max_passes: number of times to repeat the whole greedy sweep (usually 1 is enough;
                     >1 helps if deletion of one edge enables others)
+        fidelity_threshold: minimum physical fidelity (not squared reward) to accept.
+        reoptimize: if inherited weights fail the fidelity test, try bounded
+                    optimization initialized from the surviving weights. Accept
+                    only after verifying the resulting physical fidelity. Invalid
+                    starting graphs/weights are returned without optimization.
 
     Returns:
         pruned_state, pruned_weights, keep_mask (mask over original edges)
     """
-    state0 = list(state)
-    n0 = len(state0)
+    input_state = list(state)
+    n_input = len(input_state)
 
     if weights is not None:
-        weights0 = np.asarray(weights, dtype=float)
-        if len(weights0) != n0:
-            raise ValueError(f"weights length {len(weights0)} != number of edges {n0}")
+        input_weights = np.asarray(weights, dtype=float)
+        if input_weights.shape != (n_input,):
+            raise ValueError(f"weights must have shape ({n_input},), got {input_weights.shape}")
     else:
-        weights0 = None
+        input_weights = None
 
-    if n0 == 0:
-        return [], (np.asarray([]) if weights0 is not None else None), np.zeros(0, dtype=bool)
+    if n_input == 0:
+        return [], (np.asarray([]) if weights is not None else None), np.zeros(0, dtype=bool)
+
+    first_indices = []
+    seen = set()
+    for index, edge in enumerate(input_state):
+        key = (tuple(edge[0]), tuple(edge[1]))
+        if key not in seen:
+            seen.add(key)
+            first_indices.append(index)
+    first_indices = np.asarray(first_indices, dtype=int)
+    state0 = [input_state[index] for index in first_indices]
+    weights0 = input_weights[first_indices].copy() if input_weights is not None else None
+    n0 = len(state0)
+    keep = np.ones(n0, dtype=bool)
+
+    def result_for(kept, live_weights):
+        keep_mask = np.zeros(n_input, dtype=bool)
+        keep_mask[first_indices[kept]] = True
+        pruned_weights = live_weights[kept].copy() if live_weights is not None else None
+        return [edge for edge, retained in zip(state0, kept) if retained], pruned_weights, keep_mask
 
     target_state = np.asarray(target_state)
     if target_state.ndim != 1:
         raise ValueError("target_state must be a one-dimensional state vector.")
     target_num_nodes = _infer_num_nodes_from_state_dimension(target_state.size, num_colors)
-
+    if not np.isfinite(fidelity_threshold) or not 0 <= fidelity_threshold <= 1:
+        raise ValueError("fidelity_threshold must be finite and between 0 and 1.")
     target_support = target_support_from_vector(target_state, tol=support_tol)
+    state_nodes = {node for ((u, v), _) in state0 for node in (u, v)}
+    if state_nodes != set(range(target_num_nodes)):
+        return result_for(keep, weights0)
 
-    # If the current state already violates clauses, pruning can't fix that reliably.
-    # Return original to avoid surprises.
-    if not satisfies_clauses(state0, target_support, num_colors, num_nodes=target_num_nodes):
-        keep = np.ones(n0, dtype=bool)
-        return state0, (weights0.copy() if weights0 is not None else None), keep
+    pm_edges, pm_basis = _pruning_matching_data(state0, num_colors, target_num_nodes)
+    if not target_support or not target_support.issubset(set(pm_basis)):
+        return result_for(keep, weights0)
 
-    # Decide removal order over ORIGINAL indices
-    orig_indices = list(range(n0))
-    if order == "original" or weights0 is None:
-        removal_order = orig_indices
-    elif order == "increasing_abs_weight":
-        removal_order = sorted(orig_indices, key=lambda i: abs(weights0[i]))
-    else:
+    if order not in ("original", "increasing_abs_weight"):
         raise ValueError(f"Unknown order='{order}'")
 
-    # Maintain a live list + mapping to original indices so we can build keep_mask at end
-    cur_state = list(state0)
-    cur_weights = weights0.copy() if weights0 is not None else None
-    cur_orig = list(orig_indices)  # cur_state[k] came from original index cur_orig[k]
+    # Deletions can only remove existing PMs. Reuse their incidence and basis
+    # indices for both support checks and every numerical objective evaluation.
+    unique_basis, basis_rows = np.unique(pm_basis, return_inverse=True)
+    compact_target = target_state[unique_basis]
+
+    def matching_fidelity(local_weights, local_edges, local_basis):
+        if not np.all(np.isfinite(local_weights)):
+            return np.nan
+        amplitudes = np.zeros(len(unique_basis), dtype=complex)
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            np.add.at(amplitudes, local_basis, np.prod(local_weights[local_edges], axis=1))
+            norm = np.linalg.norm(amplitudes)
+            if not np.isfinite(norm) or norm == 0:
+                return np.nan
+            return float(abs(np.vdot(compact_target, amplitudes / norm)) ** 2)
+
+    live_pm = np.ones(len(pm_basis), dtype=bool)
+    if weights0 is not None:
+        initial_fidelity = matching_fidelity(weights0, pm_edges, basis_rows)
+        if not np.isfinite(initial_fidelity) or initial_fidelity < fidelity_threshold:
+            return result_for(keep, weights0)
 
     for _pass in range(max_passes):
         changed = False
+        removal_order = np.flatnonzero(keep).tolist()
+        if order == "increasing_abs_weight" and weights0 is not None:
+            removal_order.sort(key=lambda index: abs(weights0[index]))
 
-        # Build position map (orig_idx -> current position)
-        pos_of = {oi: k for k, oi in enumerate(cur_orig)}
-
-        for oi in removal_order:
-            if oi not in pos_of:
-                continue  # already removed
-
-            k = pos_of[oi]
-
-            # Try removing edge k
-            cand_state = cur_state[:k] + cur_state[k+1:]
-
-            # If removing makes it impossible to have any PMs at all, clauses will fail anyway.
-            if not satisfies_clauses(cand_state, target_support, num_colors, num_nodes=target_num_nodes):
+        for index in removal_order:
+            candidate_pm = live_pm & ~np.any(pm_edges == index, axis=1)
+            # This rejects a target-critical edge without optimizing weights,
+            # regardless of whether it also participates in unwanted matchings.
+            if not target_support.issubset(set(pm_basis[candidate_pm])):
                 continue
 
-            # Accept removal
-            cur_state = cand_state
-            if cur_weights is not None:
-                cur_weights = np.concatenate([cur_weights[:k], cur_weights[k+1:]])
-            removed_oi = cur_orig[k]
-            cur_orig = cur_orig[:k] + cur_orig[k+1:]
+            candidate_keep = keep.copy()
+            candidate_keep[index] = False
+            if weights0 is not None:
+                candidate_weights = weights0[candidate_keep].copy()
+                positions = np.full(n0, -1, dtype=int)
+                positions[candidate_keep] = np.arange(candidate_keep.sum())
+                local_edges = positions[pm_edges[candidate_pm]]
+                local_basis = basis_rows[candidate_pm]
+                candidate_fidelity = matching_fidelity(candidate_weights, local_edges, local_basis)
 
+                if not np.isfinite(candidate_fidelity) or candidate_fidelity < fidelity_threshold:
+                    if not reoptimize:
+                        continue
+
+                    def objective(local_weights):
+                        fidelity = matching_fidelity(local_weights, local_edges, local_basis)
+                        return -fidelity if np.isfinite(fidelity) else 0.1
+
+                    try:
+                        optimized = minimize(
+                            objective, candidate_weights, method='L-BFGS-B',
+                            bounds=[(-1, 1)] * len(candidate_weights),
+                        )
+                        optimized_weights = np.asarray(optimized.x, dtype=float)
+                        if optimized_weights.shape != candidate_weights.shape:
+                            continue
+                        candidate_fidelity = matching_fidelity(optimized_weights, local_edges, local_basis)
+                    except (ValueError, RuntimeError, FloatingPointError):
+                        continue
+                    if not np.isfinite(candidate_fidelity) or candidate_fidelity < fidelity_threshold:
+                        continue
+                    candidate_weights = optimized_weights
+
+                weights0[candidate_keep] = candidate_weights
+
+            keep = candidate_keep
+            live_pm = candidate_pm
             changed = True
-
-            # Update mapping cheaply: rebuild (graphs are small; this is fine)
-            pos_of = {oi2: kk for kk, oi2 in enumerate(cur_orig)}
 
         if not changed:
             break
 
-    keep_mask = np.zeros(n0, dtype=bool)
-    for oi in cur_orig:
-        keep_mask[oi] = True
-
-    return cur_state, cur_weights, keep_mask
+    return result_for(keep, weights0)
 
 #Function for count rates (based on PyTheus), need to double check, PyTheus functions are not well documented.
 def build_unnormalized_state(state, weights, num_colors):

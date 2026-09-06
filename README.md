@@ -119,6 +119,10 @@ To implement this gate, two ancilla nodes in state $|0\rangle$ are required. It 
 
 Here, the first two entries in each ket are the input, the next two are the output, and the final two are the ancillas in $|00\rangle$. As with state targets, the expression is normalized internally. Run this CNOT example with `python driver.py --q-gate n_a=2`. In q-gate mode, `FEATURE_KEYS` excludes every edge whose two endpoints are input nodes. Circuit generation, optimization, pruning, and plotting otherwise remain unchanged.
 
+### Edges between ancilla nodes (`--a-edges`)
+
+Add `--a-edges` to allow edges between ancilla nodes, for example `python driver.py --q-gate --a-edges n_a=2`. Allowing these edges helps implement arrays with lower edge counts for nonlocal Toffoli, CNOT(2,3), and CNOT(3,3) gates. Both endpoints use the ancilla colors set by `c_a` (color `0` by default). These edges are disabled by default, and the flag has no effect with fewer than two ancillas.
+
 ### Targets requiring ancilla photons
 The default ancilla state is $|0\rangle$. With multiple ancilla photons, the full state is interpreted as:
 

@@ -2,6 +2,7 @@ from gflow_qoc.utils import *
 from gflow_qoc.gflow_utils import *
 from gflow_qoc.result_analysis import *
 from gflow_qoc.training import *
+import itertools
 import time
 import pickle
 
@@ -10,6 +11,7 @@ num_nodes, num_colors = 4, 2 #4, 2 for (4,2)-GHZ. 6, 3 for (6,3)-GHZ. 3, 2 for (
 # If the number of optical paths is odd, you will require an ancilla qubit. 
 args = parse_args(sys.argv) # Pass CLI args as key=value, e.g. n_a=1 c_a=2
 q_gate = "--q-gate" in sys.argv[1:]
+a_edges = "--a-edges" in sys.argv[1:]
 n_a = int(args.get("n_a", "0"))  # default: 0 ancillas
 c_a = args.get("c_a")  # Optional: number of ancilla colors (0..c_a-1)
 FEATURE_KEYS, num_nodes = build_feature_keys(
@@ -19,6 +21,14 @@ FEATURE_KEYS, num_nodes = build_feature_keys(
     c_a=c_a,
     verbose=True,
 )
+if a_edges and n_a > 1:
+    ancilla_colors = range(int(c_a) if c_a is not None else 1)
+    FEATURE_KEYS.extend(
+        ((a1, a2), (c1, c2))
+        for a1, a2 in itertools.combinations(range(num_nodes - n_a, num_nodes), 2)
+        for c1, c2 in itertools.product(ancilla_colors, repeat=2)
+    )
+    print("Size of feature keys w/ancilla-ancilla edges = {}".format(len(FEATURE_KEYS)))
 if q_gate:
     num_gate_nodes = num_nodes - n_a
     if num_gate_nodes % 2 != 0:

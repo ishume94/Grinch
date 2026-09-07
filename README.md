@@ -130,18 +130,17 @@ The main use of the beta curve is to start with a somewhat explorative policy an
 After a terminal graph is sampled, the edge weights are optimized via L-BFGS-B:
 
 - **Unregularized optimization** minimizes:
-
-  $$
-  -\mathcal{F}(\mathcal{G},\boldsymbol{w})
-  $$
+$$
+-\mathcal{F}(\mathcal{G},\boldsymbol{w})
+$$
 
   where $\mathcal{F}$ is the fidelity between the generated and target states.
 
 - **Pruning mode (`pruning=True`)** can make use of L1-regularized optimization, the option is commented and will be implemented as a flag at a later point:
 
-  $$
-  -\mathcal{F}(\mathcal{G},\boldsymbol{w}) + \alpha \lVert w \rVert_1
-  $$
+$$
+-\mathcal{F}(\mathcal{G},\boldsymbol{w}) + \alpha \lVert w \rVert_1
+$$
 
   with default $\alpha = 0.1$.
 

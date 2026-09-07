@@ -12,6 +12,8 @@ saved alongside the aligned weights and SVG/PNG graph figures. Negative weights
 are marked by white, black-outlined diamonds at the edge midpoints.
 The smallest graph (fewest edges, then highest fidelity) is also reported and
 plotted using its already optimized weights.
+An additional graph is selected by fewest edges, then fewest negative weights,
+then highest fidelity, using those same optimization results.
 """
 
 import csv
@@ -146,7 +148,10 @@ def _rank_pruned_states(pruned_states, target_state, num_colors, seed=None):
 
 
 def _print_solution(record, label):
-    print(f"{label}: edges={record['num_edges']}, fidelity={record['fidelity']:.12f}")
+    print(
+        f"{label}: edges={record['num_edges']}, "
+        f"negative_edges={len(record['negative_edges'])}, fidelity={record['fidelity']:.12f}"
+    )
     if record["negative_edges"]:
         print("  Negative edges:")
         for negative in record["negative_edges"]:
@@ -195,6 +200,10 @@ def main(argv=None):
     records = _rank_pruned_states(pruned_states, target_state, num_colors, config["seed"])
     top_records = records[:int(config["top_n"])]
     smallest_best = dict(min(records, key=lambda record: (record["num_edges"], -record["fidelity"])))
+    smallest_fewest_negative = dict(min(
+        records,
+        key=lambda record: (record["num_edges"], len(record["negative_edges"]), -record["fidelity"]),
+    ))
     output_dir.mkdir(parents=True, exist_ok=True)
     _apply_style()
     print(f"\nTop {len(top_records)} distinct pruned graphs by optimized fidelity:")
@@ -220,6 +229,18 @@ def main(argv=None):
         n_ancilla=int(config["n_a"]),
     ))
 
+    smallest_fewest_negative["selection"] = "smallest_fewest_negative"
+    _print_solution(
+        smallest_fewest_negative,
+        "\nPruned state with fewest edges, then fewest negative edges, then highest fidelity",
+    )
+    outputs.extend(_save_solution(
+        smallest_fewest_negative,
+        filename=output_dir / f"{fig_name}_smallest_fewest_negative_pruned_fancy_graph",
+        total_nodes=total_nodes,
+        n_ancilla=int(config["n_a"]),
+    ))
+
     csv_path = output_dir / f"{fig_name}_top_pruned_summary.csv"
     with csv_path.open("w", newline="") as handle:
         writer = csv.DictWriter(
@@ -228,12 +249,15 @@ def main(argv=None):
             extrasaction="ignore",
         )
         writer.writeheader()
-        for record in [*top_records, smallest_best]:
+        for record in [*top_records, smallest_best, smallest_fewest_negative]:
             writer.writerow({**record, "negative_edges": json.dumps(record["negative_edges"])})
     json_path = output_dir / f"{fig_name}_top_pruned_results.json"
     with json_path.open("w") as handle:
         json.dump(
-            {"config": config, "results": top_records, "smallest_best": smallest_best},
+            {
+                "config": config, "results": top_records, "smallest_best": smallest_best,
+                "smallest_fewest_negative": smallest_fewest_negative,
+            },
             handle, indent=2, allow_nan=False,
         )
         handle.write("\n")

@@ -6,7 +6,7 @@ import numpy as np
 from matplotlib import cm, colors
 
 from .result_analysis import _draw_state_inset, _mode_color
-from .utils import opt_fidelity
+from .utils import opt_fidelity, reward_fidelity
 
 try:
     import seaborn as sns
@@ -534,6 +534,11 @@ def plot_sample_ranking(
                     threshold=prune_threshold,
                     sort_edges=sort_edges,
                 )
+            edge_weights = None
+            if state_to_draw and target_state is not None and num_colors is not None:
+                optimized_reward, edge_weights = reward_fidelity(target_state, state_to_draw, int(num_colors), pruning=False)
+                if not np.isfinite(optimized_reward) or optimized_reward <= 0:
+                    edge_weights = None
             _draw_state_inset(
                 ax=ax,
                 center_xy=(graph_x, graph_y),
@@ -545,6 +550,7 @@ def plot_sample_ranking(
                 radius_x_data=n_samples * 0.120,
                 radius_y_data=2.15,
                 show_state_name=False,
+                edge_weights=edge_weights,
             )
             score = final_score_by_key.get(key)
             if score is not None and np.isfinite(score):

@@ -295,6 +295,7 @@ def _draw_state_inset(
     radius_x_data=0.28,
     radius_y_data=0.28,
     show_state_name=True,
+    edge_weights=None,
 ):
     x, y = center_xy
     if total_nodes is None or int(total_nodes) <= 0:
@@ -333,7 +334,7 @@ def _draw_state_inset(
         pair_counts[pair_key] = pair_counts.get(pair_key, 0) + 1
 
     pair_seen = {}
-    for ((n1, n2), (c1, c2)) in state:
+    for state_edge_idx, ((n1, n2), (c1, c2)) in enumerate(state):
         n1 = int(n1)
         n2 = int(n2)
         p1 = node_positions.get(n1)
@@ -376,6 +377,12 @@ def _draw_state_inset(
             solid_capstyle="round",
             zorder=1,
         )
+        if edge_weights is not None and edge_weights[state_edge_idx] < 0:
+            inset.plot(
+                [pmid[0]], [pmid[1]], marker="D", markersize=2.5,
+                markerfacecolor="white", markeredgecolor="black",
+                markeredgewidth=0.5, linestyle="None", zorder=2,
+            )
 
     anc = int(max(0, min(int(n_ancilla), n_nodes)))
     first_anc_idx = n_nodes - anc

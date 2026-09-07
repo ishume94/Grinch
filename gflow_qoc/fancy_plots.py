@@ -149,7 +149,20 @@ def _save_state_graph_figure(
     n_ancilla=0,
     border_color="#333333",
     dpi=300,
+    edge_weights=None,
 ):
+    if edge_weights is not None:
+        state = list(state)
+        edge_weights = np.asarray(edge_weights)
+        if edge_weights.ndim != 1 or len(edge_weights) != len(state) or not np.isrealobj(edge_weights):
+            raise ValueError("edge_weights must contain one finite real weight per edge.")
+        try:
+            edge_weights = np.asarray(edge_weights, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("edge_weights must contain one finite real weight per edge.") from exc
+        if not np.all(np.isfinite(edge_weights)):
+            raise ValueError("edge_weights must contain one finite real weight per edge.")
+
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.set_xlim(-1.12, 1.12)
     ax.set_ylim(-1.12, 1.12)
@@ -180,7 +193,7 @@ def _save_state_graph_figure(
         pair_counts[pair_key] = pair_counts.get(pair_key, 0) + 1
 
     pair_seen = {}
-    for ((n1, n2), (c1, c2)) in state:
+    for state_edge_idx, ((n1, n2), (c1, c2)) in enumerate(state):
         n1 = int(n1)
         n2 = int(n2)
         p1 = node_positions.get(n1)
@@ -217,6 +230,18 @@ def _save_state_graph_figure(
             solid_capstyle="round",
             zorder=1,
         )
+        if edge_weights is not None and edge_weights[state_edge_idx] < 0:
+            ax.plot(
+                [pmid[0]],
+                [pmid[1]],
+                marker="D",
+                markersize=5,
+                markerfacecolor="white",
+                markeredgecolor="black",
+                markeredgewidth=0.8,
+                linestyle="None",
+                zorder=2,
+            )
 
     anc = int(max(0, min(int(n_ancilla), n_nodes)))
     first_anc_idx = n_nodes - anc

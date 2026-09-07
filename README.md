@@ -21,6 +21,29 @@ You can define target states directly in `driver.py`. All states are properly no
 - **(6,3)-GHZ**
   - Target: `1|000000⟩ + 1|111111⟩ + 1|222222⟩`
 
+### Targets requiring ancilla photons
+The default ancilla state is $|0\rangle$. With multiple ancilla photons, the full state is interpreted as:
+
+$$
+|\psi\rangle_{target} \otimes |0\ldots 0\rangle
+$$
+
+For states that require ancilla photons, explicitly include the ancilla in the target state expression. E.g., for the state requiring one ancilla photon, $(|000\rangle + |111\rangle)\otimes |0\rangle$ the target expression should be `1|0000⟩ + 1|1110⟩`. Examples:
+
+- **(3,2)-GHZ with one ancilla photon**
+  - Target: `1|0000⟩ + 1|1110⟩`
+
+- **$|D(3,(1,1,1))\rangle \otimes |0\rangle$**
+  - Target: `1|0120⟩ + 1|0210⟩ + 1|1020⟩ + 1|1200⟩ + 1|2010⟩ + 1|2100⟩`
+
+### Ancilla action space (`n_a` and `c_a`)
+
+- `n_a` controls how many ancilla nodes are added.
+- `c_a` controls how many ancilla colors are allowed for ancilla edges (`0, 1, ..., c_a-1`).
+- If `c_a` is not provided, ancilla color is fixed to `0` only.
+- `c_a` must satisfy `1 <= c_a <= num_colors` when `n_a > 0`.
+
+
 ### Quantum-gate targets (`--q-gate`)
 
 Run `driver.py` with `--q-gate` to synthesize a non-local photonic quantum gate. In this mode, `num_nodes` is the number of non-ancilla nodes and must be even. The first `num_nodes / 2` nodes encode the input, the next `num_nodes / 2` nodes encode the output, and any nodes added with `n_a` are ancillas appended after the input and output nodes.
@@ -49,29 +72,7 @@ Here, the first two entries in each ket are the input, the next two are the outp
 
 ### Edges between ancilla nodes (`--a-edges`)
 
-Add `--a-edges` to allow edges between ancilla nodes, for example `python driver.py --q-gate --a-edges n_a=2`. Allowing these edges helps implement arrays with lower edge counts for nonlocal Toffoli, CNOT(2,3), and CNOT(3,3) gates. Both endpoints use the ancilla colors set by `c_a` (color `0` by default). These edges are disabled by default, and the flag has no effect with fewer than two ancillas.
-
-### Targets requiring ancilla photons
-The default ancilla state is $|0\rangle$. With multiple ancilla photons, the full state is interpreted as:
-
-$$
-|\psi\rangle_{target} \otimes |0\ldots 0\rangle
-$$
-
-For states that require ancilla photons, explicitly include the ancilla in the target state expression. E.g., for the state requiring one ancilla photon, $(|000\rangle + |111\rangle)\otimes |0\rangle$ the target expression should be `1|0000⟩ + 1|1110⟩`. Examples:
-
-- **(3,2)-GHZ with one ancilla photon**
-  - Target: `1|0000⟩ + 1|1110⟩`
-
-- **$|D(3,(1,1,1))\rangle \otimes |0\rangle$**
-  - Target: `1|0120⟩ + 1|0210⟩ + 1|1020⟩ + 1|1200⟩ + 1|2010⟩ + 1|2100⟩`
-
-### Ancilla action space (`n_a` and `c_a`)
-
-- `n_a` controls how many ancilla nodes are added.
-- `c_a` controls how many ancilla colors are allowed for ancilla edges (`0, 1, ..., c_a-1`).
-- If `c_a` is not provided, ancilla color is fixed to `0` only.
-- `c_a` must satisfy `1 <= c_a <= num_colors` when `n_a > 0`.
+Add `--a-edges` to allow edges between ancilla nodes, for example `python driver.py --q-gate --a-edges n_a=2`. Allowing these edges helps implement arrays with lower edge counts for nonlocal Toffoli and CNOT(2,3). Both endpoints use the ancilla colors set by `c_a` (color `0` by default). These edges are disabled by default, and the flag has no effect with fewer than two ancillas.
 
 ## Running
 

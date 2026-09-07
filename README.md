@@ -130,6 +130,7 @@ The main use of the beta curve is to start with a somewhat explorative policy an
 After a terminal graph is sampled, the edge weights are optimized via L-BFGS-B:
 
 - **Unregularized optimization** minimizes:
+
 $$
 -\mathcal{F}(\mathcal{G},\boldsymbol{w})
 $$

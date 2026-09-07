@@ -31,7 +31,7 @@ CONFIG = {
     "callout_prune_threshold": 0.99,
     "save_callout_graphs": True,
     "projection_method": "pca",  # pca or identity
-    "projection_gridsize": 64,
+    "projection_gridsize": 60,
     "projection_labels": 0,
     "projection_show_samples": False,
     "make_scatter": False,

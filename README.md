@@ -1,6 +1,6 @@
-# Grinch
+# Grinch: Bottom-Up Design of Quantum Optical Experiments Using Discrete Generative Models
 
-This repository contains code for **Bottom-Up Automated Design of Quantum Optical Circuits Using Reward-Driven Generative Models.**
+This repository contains code to reproduce the results in **Bottom-Up Design of Quantum Optical Experiments Using Discrete Generative Models**
 
 - `driver.py` is the main file to run and includes the training configuration (target states, maximum number of edges, etc.), sampling function to generate optical circuits and result analysis.
 - Clone the repositary and install with `pip install -e .`

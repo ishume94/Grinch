@@ -1,5 +1,7 @@
 # Grinch: Bottom-Up Design of Quantum Optical Experiments Using Discrete Generative Models
 
+[![arXiv](https://img.shields.io/badge/arXiv-2609.08073-b31b1b.svg)](https://arxiv.org/abs/2609.08073)
+
 This repository contains code to reproduce the results in **Bottom-Up Design of Quantum Optical Experiments Using Discrete Generative Models**
 
 - `driver.py` is the main file to run and includes the training configuration (target states, maximum number of edges, etc.), sampling function to generate optical circuits and result analysis.
@@ -173,3 +175,17 @@ Note: other training functions (`TB_train`, `GIN_TB_train`, `GINE_TB_train`, `GA
 4. Repeat until no edge is removed or `max_passes=10` is reached. Return the pruned graph, aligned weights, and a keep-mask over the original edges.
 
 The unwanted-basis C clause remains disabled: weight optimization can suppress intruder amplitudes while retaining edges needed by the target. With `weights=None`, pruning checks support only. Fidelity acceptance uses $\mathcal{F}$, while the training reward remains $\mathcal{F}^2$.
+
+## Citation
+
+```bibtex
+@misc{huidobromeezs2026bottomupdesignquantumoptical,
+  title={Bottom-Up Design of Quantum Optical Experiments Using Discrete Generative Models},
+  author={Isaac L. Huidobro-Meezs and Simón Paiva-Ortega and Rodrigo A. Vargas-Hernández},
+  year={2026},
+  eprint={2609.08073},
+  archivePrefix={arXiv},
+  primaryClass={quant-ph},
+  url={https://arxiv.org/abs/2609.08073},
+}
+```
